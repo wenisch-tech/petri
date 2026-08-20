@@ -1,0 +1,26 @@
+/* The board is a horizontal run of columns. States can outnumber the viewport,
+   so it scrolls sideways rather than wrapping, which would hide the pipeline
+   order that the whole model depends on. */
+.petri-board {
+    display: flex;
+    gap: 1rem;
+    overflow-x: auto;
+    padding-bottom: .5rem;
+    align-items: flex-start;
+}
+
+.petri-column {
+    flex: 0 0 17rem;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    padding: .75rem;
+}
+
+.petri-gate {
+    font-size: .75rem;
+}
+
+.petri-pre {
+    white-space: pre-wrap;
+}

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" th:fragment="page(title, content)">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${title} + ' · Petri'">Petri</title>
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/font/bootstrap-icons.css}">
+    <link rel="stylesheet" th:href="@{/css/petri.css}">
+</head>
+<body class="bg-body-tertiary">
+<nav class="navbar navbar-expand bg-body border-bottom">
+    <div class="container-fluid">
+        <a class="navbar-brand fw-medium" th:href="@{/}">
+            <i class="bi bi-diagram-3 me-1"></i>Petri
+        </a>
+        <div class="ms-auto small">
+            <a class="link-secondary text-decoration-none me-3" th:href="@{/swagger-ui.html}">API</a>
+            <a class="link-secondary text-decoration-none" th:href="@{/actuator/health}">Health</a>
+        </div>
+    </div>
+</nav>
+<main class="container-fluid py-4">
+    <th:block th:replace="${content}"></th:block>
+</main>
+</body>
+</html>

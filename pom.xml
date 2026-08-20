@@ -28,6 +28,9 @@
         <java.version>25</java.version>
         <springdoc-openapi.version>3.1.0</springdoc-openapi.version>
         <jacoco.line.minimum>0.50</jacoco.line.minimum>
+        <bootstrap.version>5.3.8</bootstrap.version>
+        <bootstrap-icons.version>1.13.1</bootstrap-icons.version>
+        <webjars-locator.version>1.1.4</webjars-locator.version>
     </properties>
 
     <dependencies>
@@ -92,6 +95,24 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>${springdoc-openapi.version}</version>
+        </dependency>
+
+        <!-- Bundled rather than pulled from a CDN: the board must render on a
+             network that cannot reach the internet, which is where Petri runs. -->
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>bootstrap</artifactId>
+            <version>${bootstrap.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.webjars.npm</groupId>
+            <artifactId>bootstrap-icons</artifactId>
+            <version>${bootstrap-icons.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>webjars-locator-lite</artifactId>
+            <version>${webjars-locator.version}</version>
         </dependency>
 
         <dependency>

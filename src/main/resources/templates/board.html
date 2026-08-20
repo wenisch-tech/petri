@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page(${board.name}, ~{::content})}">
+<body>
+<th:block th:fragment="content">
+    <div class="d-flex align-items-baseline mb-3">
+        <h1 class="h4 fw-medium mb-0" th:text="${board.name}">Board</h1>
+        <span class="text-secondary small ms-3" th:text="${board.repository}">owner/name</span>
+        <span class="badge text-bg-light border ms-2" th:text="${board.forge}">FORGEJO</span>
+        <span class="text-secondary small ms-auto"
+              th:text="${board.cardCount()} + ' cards'">0 cards</span>
+    </div>
+
+    <div class="petri-board">
+        <div class="petri-column" th:each="column : ${board.columns}">
+            <div class="d-flex align-items-center mb-2">
+                <span class="fw-medium" th:text="${column.name}">state</span>
+                <span class="badge rounded-pill text-bg-light border ms-2"
+                      th:text="${column.count()}">0</span>
+                <span class="ms-auto badge text-bg-light border font-monospace"
+                      th:text="${column.modelLabel()}">model</span>
+            </div>
+            <div class="text-secondary petri-gate mb-2">
+                <i class="bi bi-shield-check me-1"></i><span th:text="${column.gate}">GATE</span>
+            </div>
+
+            <p class="text-secondary small fst-italic" th:if="${column.cards.isEmpty()}">empty</p>
+
+            <a class="card border-0 shadow-sm mb-2 text-decoration-none text-body d-block"
+               th:each="card : ${column.cards}"
+               th:href="@{/cards/{id}(id=${card.id})}">
+                <div class="card-body py-2 px-3">
+                    <div class="small fw-medium" th:text="${card.title}">title</div>
+
+                    <div class="d-flex align-items-center gap-2 mt-2">
+                        <span class="badge"
+                              th:if="${card.runStatus != null}"
+                              th:classappend="${card.isRunning()} ? 'text-bg-primary' : 'text-bg-light border'"
+                              th:text="${card.runStatus}">STATUS</span>
+
+                        <!-- Silence, not elapsed time. A run is legitimately busy for
+                             the length of a single model call, so how long it has been
+                             quiet is what separates working from hung. -->
+                        <span class="text-secondary petri-gate"
+                              th:if="${card.runStatus != null}"
+                              th:text="'quiet ' + ${card.silenceLabel()}">quiet 0s</span>
+
+                        <span class="text-secondary petri-gate ms-auto"
+                              th:if="${card.attempts > 0}"
+                              th:text="'attempt ' + ${card.attempts}">attempt 1</span>
+                    </div>
+
+                    <div class="petri-gate text-secondary mt-1 text-truncate"
+                         th:if="${card.branch != null}">
+                        <i class="bi bi-git me-1"></i><span th:text="${card.branch}">branch</span>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+</th:block>
+</body>
+</html>

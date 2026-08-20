@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Boards', ~{::content})}">
+<body>
+<th:block th:fragment="content">
+    <h1 class="h4 fw-medium mb-3">Boards</h1>
+
+    <div th:if="${boards.isEmpty()}" class="card border-0 shadow-sm">
+        <div class="card-body">
+            <p class="mb-1">No boards yet.</p>
+            <p class="text-secondary small mb-0">
+                A board is a repository plus the states its work moves through.
+                Create one through the API, or start the application with
+                <code>petri.seed-demo=true</code> to see an example pipeline.
+            </p>
+        </div>
+    </div>
+
+    <div class="list-group shadow-sm" th:unless="${boards.isEmpty()}">
+        <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+           th:each="b : ${boards}" th:href="@{/boards/{slug}(slug=${b.slug})}">
+            <span>
+                <span class="fw-medium" th:text="${b.name}">Board</span>
+                <span class="text-secondary small ms-2" th:text="${b.repository}">owner/name</span>
+            </span>
+            <span class="badge text-bg-light border" th:text="${b.forge}">FORGEJO</span>
+        </a>
+    </div>
+</th:block>
+</body>
+</html>

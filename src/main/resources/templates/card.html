@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page(${card.title}, ~{::content})}">
+<body>
+<th:block th:fragment="content">
+    <nav class="small mb-3">
+        <a class="link-secondary text-decoration-none"
+           th:href="@{/boards/{slug}(slug=${card.boardSlug})}"
+           th:text="'&larr; ' + ${card.boardName}">Board</a>
+    </nav>
+
+    <div class="d-flex align-items-baseline mb-3">
+        <h1 class="h5 fw-medium mb-0" th:text="${card.title}">Card</h1>
+        <span class="badge text-bg-light border ms-3" th:text="${card.stateName}">state</span>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-7">
+            <div class="card border-0 shadow-sm mb-3">
+                <div class="card-body">
+                    <h2 class="h6 fw-medium">Description</h2>
+                    <p class="mb-0 text-secondary small petri-pre"
+                       th:text="${card.description} ?: 'No description.'">...</p>
+                </div>
+            </div>
+
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h2 class="h6 fw-medium">History</h2>
+                    <p class="text-secondary small mb-0" th:if="${card.history.isEmpty()}">
+                        No transitions yet.
+                    </p>
+                    <table class="table table-sm align-middle mb-0 small"
+                           th:unless="${card.history.isEmpty()}">
+                        <thead class="text-secondary">
+                        <tr>
+                            <th>From</th><th>To</th><th>Actor</th><th>Verdict</th><th>When</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="t : ${card.history}">
+                            <td th:text="${t.fromState} ?: '-'">-</td>
+                            <td class="fw-medium" th:text="${t.toState}">state</td>
+                            <td class="font-monospace" th:text="${t.actor}">actor</td>
+                            <td class="text-secondary" th:text="${t.verdict} ?: '-'">-</td>
+                            <td class="text-secondary text-nowrap" th:text="${t.at}">t</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card border-0 shadow-sm mb-3">
+                <div class="card-body">
+                    <h2 class="h6 fw-medium">Repository</h2>
+                    <dl class="row mb-0 small">
+                        <dt class="col-4 fw-normal text-secondary">Branch</dt>
+                        <dd class="col-8 font-monospace text-truncate"
+                            th:text="${card.branch} ?: '-'">-</dd>
+                        <dt class="col-4 fw-normal text-secondary">Pull request</dt>
+                        <dd class="col-8">
+                            <a th:if="${card.pullRequestUrl != null}"
+                               th:href="${card.pullRequestUrl}"
+                               th:text="${card.pullRequestUrl}">link</a>
+                            <span th:unless="${card.pullRequestUrl != null}">-</span>
+                        </dd>
+                        <dt class="col-4 fw-normal text-secondary">Attempts</dt>
+                        <dd class="col-8" th:text="${card.attempts}">0</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h2 class="h6 fw-medium">Runs</h2>
+                    <p class="text-secondary small mb-0" th:if="${card.runs.isEmpty()}">
+                        Nothing has run yet.
+                    </p>
+                    <table class="table table-sm align-middle mb-0 small"
+                           th:unless="${card.runs.isEmpty()}">
+                        <thead class="text-secondary">
+                        <tr><th>#</th><th>Status</th><th>Session</th><th>Last event</th></tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="r : ${card.runs}">
+                            <td th:text="${r.attempt}">1</td>
+                            <td th:text="${r.status}">STATUS</td>
+                            <td class="font-monospace text-truncate"
+                                th:text="${r.sessionId} ?: '-'">-</td>
+                            <td class="text-secondary text-nowrap"
+                                th:text="${r.lastEventAt} ?: '-'">-</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</th:block>
+</body>
+</html>
