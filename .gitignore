@@ -38,3 +38,4 @@ build/
 *.mv.db
 *.trace.db
 site/
+data/

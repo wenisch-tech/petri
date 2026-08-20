@@ -1,0 +1,37 @@
+apiVersion: v2
+name: petri
+description: A self-hosted orchestrator for AI coding agents
+type: application
+version: 0.0.1
+appVersion: "0.0.1"
+keywords:
+  - orchestration
+  - ai
+  - agents
+  - state-machine
+  - kanban
+home: https://github.com/wenisch-tech/petri
+sources:
+  - https://github.com/wenisch-tech/petri
+maintainers:
+  - name: JFWenisch
+    url: https://github.com/JFWenisch
+  - name: Wenisch Technologies
+    url: https://wenisch.tech
+annotations:
+  artifacthub.io/category: skip-prediction
+  artifacthub.io/license: AGPL-3.0
+  artifacthub.io/prerelease: "true"
+  artifacthub.io/signKey: |
+    fingerprint: keyless (Sigstore/Cosign via GitHub Actions OIDC)
+    url: https://github.com/wenisch-tech/petri/actions
+  artifacthub.io/images: |
+    - name: petri
+      image: ghcr.io/wenisch-tech/petri:latest
+  artifacthub.io/links: |
+    - name: GitHub Repository
+      url: https://github.com/wenisch-tech/petri
+    - name: Changelog
+      url: https://github.com/wenisch-tech/petri/blob/main/CHANGELOG.md
+    - name: Container Registry
+      url: https://github.com/wenisch-tech/petri/pkgs/container/petri

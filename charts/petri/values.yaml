@@ -1,0 +1,109 @@
+replicaCount: 1
+image:
+  registry: ghcr.io
+  repository: wenisch-tech/petri
+  tag: 0.0.1
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+autoscaling:
+  enabled: false
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+  annotations: {}
+metrics:
+  path: /actuator/prometheus
+  serviceAnnotations:
+    enabled: true
+  podAnnotations:
+    enabled: false
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    annotations: {}
+    honorLabels: false
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: petri.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+# Petri defaults to an embedded H2 database written under mountPath. Enable
+# persistence to keep it across restarts, or point the datasource at PostgreSQL
+# below and leave this disabled.
+persistence:
+  enabled: false
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  mountPath: /app/data
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# Environment variables for Spring Boot and application configuration.
+# Leave empty to keep the built-in H2 defaults.
+env:
+  # Set these three to run against PostgreSQL instead of the embedded H2
+  # database. Flyway owns the schema on either, so nothing else changes.
+  SPRING_DATASOURCE_URL: ""
+  SPRING_DATASOURCE_USERNAME: ""
+  SPRING_DATASOURCE_PASSWORD: ""
+# Secrets for sensitive data.
+# If a key is set in both `env` and `secrets`, the Secret-backed value wins.
+secrets: {}
+# SPRING_DATASOURCE_PASSWORD: "your-password"
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /actuator/health/liveness
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 10
+  failureThreshold: 3
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /actuator/health/readiness
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 5
+startupProbe:
+  enabled: true
+  httpGet:
+    path: /actuator/health
+    port: http
+  # Allow slower boots (migrations, cold starts) before liveness kicks in.
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 30

@@ -1,0 +1,39 @@
+site_name: Petri Documentation
+site_description: Documentation for Petri, an orchestrator for AI coding agents
+site_url: https://wenisch-tech.github.io/petri/
+repo_url: https://github.com/wenisch-tech/petri
+repo_name: wenisch-tech/petri
+docs_dir: docs
+site_dir: site
+theme:
+  name: material
+  language: en
+  palette:
+    scheme: slate
+    primary: black
+    accent: cyan
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation and Quickstart: quickstart.md
+  - Configuration:
+      - Database: configuration-database.md
+  - Concepts:
+      - Architecture: architecture.md
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
+plugins:
+  - search
