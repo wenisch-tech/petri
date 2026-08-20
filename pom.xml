@@ -54,6 +54,14 @@
 
         <!-- Flyway runs against both databases: H2 is the zero-setup default,
              PostgreSQL is opted into with standard Spring datasource properties. -->
+        <!-- flyway-core is the library; spring-boot-flyway is the Spring Boot 4
+             auto-configuration module. Without the second, migrations are
+             silently skipped: the context starts, Hibernate connects, and
+             nothing reports that the schema was never migrated. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
