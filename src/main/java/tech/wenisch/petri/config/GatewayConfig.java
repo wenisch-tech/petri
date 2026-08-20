@@ -23,8 +23,17 @@ public class GatewayConfig {
 
     @Bean
     AgentGateway agentGateway(GatewayProperties properties) {
-        if (!properties.enabled() || properties.baseUrl().isBlank()) {
-            LOG.info("Agent gateway disabled; the runner will not start any work");
+        if (!properties.enabled()) {
+            LOG.info("Agent gateway switched off (petri.gateway.enabled=false); "
+                    + "the runner will not start any work");
+            return new DisabledAgentGateway();
+        }
+        if (properties.baseUrl().isBlank()) {
+            // Enabled but unreachable is a configuration mistake, not a mode, so
+            // say so plainly rather than logging "disabled" and contradicting
+            // the setting the operator actually chose.
+            LOG.warn("Agent gateway is enabled but petri.gateway.base-url is not set; "
+                    + "no work can be started until it is");
             return new DisabledAgentGateway();
         }
 

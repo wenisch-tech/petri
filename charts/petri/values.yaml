@@ -76,10 +76,19 @@ env:
   SPRING_DATASOURCE_URL: ""
   SPRING_DATASOURCE_USERNAME: ""
   SPRING_DATASOURCE_PASSWORD: ""
+  # Agent gateway. The runner is enabled by default but has nothing to call
+  # until a base URL is set, and says so at startup.
+  PETRI_GATEWAY_BASE_URL: ""
+  PETRI_GATEWAY_USERNAME: "petri"
+  # A run is bounded by silence, not elapsed time: a single model call on a
+  # contended GPU can legitimately take minutes.
+  PETRI_GATEWAY_IDLE_TIMEOUT: "PT15M"
+  PETRI_GATEWAY_MAX_DURATION: "PT1H"
 # Secrets for sensitive data.
 # If a key is set in both `env` and `secrets`, the Secret-backed value wins.
 secrets: {}
 # SPRING_DATASOURCE_PASSWORD: "your-password"
+# PETRI_GATEWAY_PASSWORD: "your-gateway-password"
 livenessProbe:
   enabled: true
   httpGet:

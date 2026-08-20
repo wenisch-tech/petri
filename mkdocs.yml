@@ -25,6 +25,7 @@ nav:
       - Installation and Quickstart: quickstart.md
   - Configuration:
       - Database: configuration-database.md
+      - Agent gateway: configuration-gateway.md
   - Concepts:
       - Architecture: architecture.md
 markdown_extensions:
