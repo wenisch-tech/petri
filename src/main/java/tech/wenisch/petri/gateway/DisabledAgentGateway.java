@@ -30,6 +30,16 @@ public class DisabledAgentGateway implements AgentGateway {
     }
 
     @Override
+    public String diff(String repository, String branch) {
+        return "";
+    }
+
+    @Override
+    public String lastMessage(String sessionId) {
+        return "";
+    }
+
+    @Override
     public GateReport check(String repository, String branch) {
         // Refuse rather than report a pass nobody performed: a gate that says
         // yes without checking is worse than no gate at all.

@@ -35,4 +35,17 @@ public interface AgentGateway {
      * have been hardened by real failures. Asking is the whole contract.
      */
     GateReport check(String repository, String branch);
+
+    /**
+     * The change made on a branch, as a unified diff.
+     *
+     * <p>Needed so a reviewer can read what was actually written. Asking the
+     * gateway rather than the forge keeps Petri away from the credential, and
+     * means the diff reviewed is the one about to be pushed rather than whatever
+     * a later fetch would return.
+     */
+    String diff(String repository, String branch);
+
+    /** The agent's last message in a session, or empty if it produced none. */
+    String lastMessage(String sessionId);
 }

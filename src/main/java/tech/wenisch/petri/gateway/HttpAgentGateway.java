@@ -160,6 +160,52 @@ public class HttpAgentGateway implements AgentGateway {
     }
 
     @Override
+    public String diff(String repository, String branch) {
+        return output(repoCommand("diff", List.of()));
+    }
+
+    /**
+     * The agent's last message, assembled from the session's message parts.
+     *
+     * <p>Only text parts are kept: tool calls and file attachments are how the
+     * agent worked, not what it concluded, and a gate reading the conclusion
+     * should not have to sift the mechanics out of it.
+     */
+    @Override
+    public String lastMessage(String sessionId) {
+        try {
+            List<Map<String, Object>> messages = sessions.get()
+                    .uri("/session/{id}/message", sessionId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<Map<String, Object>>>() {});
+
+            if (messages == null || messages.isEmpty()) {
+                return "";
+            }
+
+            StringBuilder text = new StringBuilder();
+            Object parts = messages.getLast().get("parts");
+            if (parts instanceof List<?> list) {
+                for (Object part : list) {
+                    if (part instanceof Map<?, ?> entry && "text".equals(entry.get("type"))) {
+                        Object value = entry.get("text");
+                        if (value != null) {
+                            text.append(value).append(System.lineSeparator());
+                        }
+                    }
+                }
+            }
+            return text.toString().strip();
+
+        } catch (RuntimeException ex) {
+            // Losing the transcript must not lose the run: the gate can still
+            // decide on the diff, and the reason is recorded either way.
+            LOG.warn("Could not read the last message of session {}: {}", sessionId, ex.toString());
+            return "";
+        }
+    }
+
+    @Override
     public GateReport check(String repository, String branch) {
         Map<String, Object> response = repoCommand("check", List.of());
         return new GateReport(exitCode(response) == 0, output(response));

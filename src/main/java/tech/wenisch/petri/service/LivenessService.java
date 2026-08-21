@@ -130,6 +130,10 @@ public class LivenessService {
         run.setStatus(status);
         run.setFinishedAt(now);
         run.setSummary(reason);
+        // Fetched once, here, rather than on every gate evaluation or page view.
+        if (run.getSessionId() != null) {
+            run.setOutput(gateway.lastMessage(run.getSessionId()));
+        }
         runs.save(run);
         LOG.info("Run {} finished: {} ({})", run.getId(), status, reason);
         decide(run);

@@ -71,6 +71,16 @@ class RunnerTests {
         public GateReport check(String repository, String branch) {
             return new GateReport(true, "all checks pass");
         }
+
+        @Override
+        public String diff(String repository, String branch) {
+            return "diff --git a/x b/x";
+        }
+
+        @Override
+        public String lastMessage(String sessionId) {
+            return "finished";
+        }
     }
 
     @TestConfiguration

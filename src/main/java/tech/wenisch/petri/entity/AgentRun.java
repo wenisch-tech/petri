@@ -64,8 +64,18 @@ public class AgentRun {
     @Column(name = "exit_code")
     private Integer exitCode;
 
+    /** Why the run ended, in Petri's words. */
     @Column
     private String summary;
+
+    /**
+     * The agent's own final message, fetched once when the run ends.
+     *
+     * <p>Distinct from {@link #summary}: that is Petri's account of how the run
+     * finished, this is what the agent produced. Gates read this one.
+     */
+    @Column
+    private String output;
 
     /** How long the run has produced nothing, or empty if it never started. */
     public Duration silenceFor(Instant now) {
