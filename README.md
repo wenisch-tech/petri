@@ -129,13 +129,26 @@ docker run -p 8080:8080 ghcr.io/wenisch-tech/petri:latest
 
 Starts with an embedded H2 database, no configuration required. Open <http://localhost:8080>.
 
-**There is no fixed default password.** The board login user is `admin`; with no
-`petri.security.password` set, Petri generates a random one at startup and logs
-it - check the container logs for a line like
-`No petri.security.password set. Generated one for this run only: ...`. Set the
-property yourself for anything long-lived. The write API is stricter still: with
-no `petri.security.api-key` set it rejects every request rather than opening up,
-since it is what queues agent runs against real repositories. See
+**There is no fixed default password.** The board login user is `admin`. With no
+`petri.security.password` set, Petri generates a random one *every time it
+starts* and logs it as a `WARN` line - easy to miss among the Spring Boot
+startup noise. Search the log for `Generated one for this run only`:
+
+```
+WARN ... SecurityConfig : No petri.security.password set. Generated one for this run only: e525add8-1011-4da2-a444-71fb91fbd3b7
+```
+
+That value is only good until the process restarts - a new container, a
+redeploy, or a plain restart all generate a new one. Set the property yourself
+for a password that stays put:
+
+```bash
+docker run -p 8080:8080 -e PETRI_SECURITY_PASSWORD=... ghcr.io/wenisch-tech/petri:latest
+```
+
+The write API is stricter still: with no `petri.security.api-key` set it
+rejects every request rather than opening up, since it is what queues agent
+runs against real repositories. See
 [Access and the API](docs/configuration-security.md) for both.
 
 ### Run on Kubernetes with Helm
