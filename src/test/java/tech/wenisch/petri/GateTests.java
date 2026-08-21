@@ -55,6 +55,10 @@ class GateTests {
         @Override public Map<String, SessionSnapshot> observe(List<String> ids) { return Map.of(); }
         @Override public void abort(String sessionId) { }
         @Override public String lastMessage(String sessionId) { return ""; }
+        @Override public GateReport push(String r, String b) { return new GateReport(true, "pushed"); }
+        @Override public String openPullRequest(String r, String b, String t, String body) {
+            return "https://example.invalid/pulls/1";
+        }
 
         @Override
         public String diff(String repository, String branch) {

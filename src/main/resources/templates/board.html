@@ -7,8 +7,46 @@
         <h1 class="h4 fw-medium mb-0" th:text="${board.name}">Board</h1>
         <span class="text-secondary small ms-3" th:text="${board.repository}">owner/name</span>
         <span class="badge text-bg-light border ms-2" th:text="${board.forge}">FORGEJO</span>
-        <span class="text-secondary small ms-auto"
+        <span class="text-secondary small ms-auto me-3"
               th:text="${board.cardCount()} + ' cards'">0 cards</span>
+        <button class="btn btn-sm btn-primary" type="button"
+                data-bs-toggle="collapse" data-bs-target="#add-card">
+            <i class="bi bi-plus-lg me-1"></i>Add card
+        </button>
+    </div>
+
+    <div class="collapse mb-3" id="add-card">
+        <form class="card border-0 shadow-sm" method="post"
+              th:action="@{/boards/{slug}/cards(slug=${board.slug})}">
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label small fw-medium" for="title">Title</label>
+                    <input class="form-control form-control-sm" id="title" name="title"
+                           required maxlength="512" placeholder="What needs doing">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small fw-medium" for="description">Description</label>
+                    <textarea class="form-control form-control-sm" id="description"
+                              name="description" rows="4"
+                              placeholder="What to change, and how anyone would know it is done."></textarea>
+                    <!-- Said plainly, because a one-line task is what sends an
+                         agent hunting through a checkout for thirteen steps and
+                         producing nothing. -->
+                    <div class="form-text petri-gate">
+                        Name the files and the acceptance criteria. A thin
+                        description is the most common reason a card fails.
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-primary" type="submit">Add to the first state</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="alert alert-warning py-2 small" th:if="${param.error != null}">
+        <span th:if="${param.error[0] == 'title'}">A card needs a title.</span>
+        <span th:if="${param.error[0] == 'nostates'}">
+            This board has no states yet, so a card has nowhere to start.
+        </span>
     </div>
 
     <div class="petri-board">
