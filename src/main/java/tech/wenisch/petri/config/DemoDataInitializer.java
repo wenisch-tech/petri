@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.annotation.Transactional;
 import tech.wenisch.petri.entity.*;
 import tech.wenisch.petri.repository.*;
+import tech.wenisch.petri.service.PromptTemplates;
 
 /**
  * Seeds one example pipeline so the board has something to show.
@@ -55,21 +56,35 @@ public class DemoDataInitializer {
         board.setDefaultBranch("main");
         boards.save(board);
 
+        // The order is the whole argument of this project. The agent commits
+        // but does not push; Petri reads the diff it reported and gates it;
+        // only then is a push asked for; and the pull request is opened by
+        // Petri, from what actually landed. Nothing reaches the remote before
+        // the secret scan, because a credential in a pushed branch is in its
+        // history whatever anyone decides afterwards.
         WorkflowState planner = state(states, board, "planner", 0, GateType.PLAN_SHAPE, "chatgpt");
         WorkflowState implement = state(states, board, "implement", 1, GateType.REPOSITORY, "coding-agent");
-        WorkflowState review = state(states, board, "review", 2, GateType.LLM_VERDICT, "chatgpt");
-        WorkflowState human = state(states, board, "human", 3, GateType.HUMAN, null);
-        WorkflowState done = state(states, board, "done", 4, GateType.NONE, null);
+        WorkflowState review = state(states, board, "review", 2, GateType.LLM_VERDICT, "coding-agent");
+        WorkflowState push = state(states, board, "push", 3, GateType.NONE, "coding-agent");
+        // Its gate says nothing about pushing, so this one is spelled out.
+        push.setPromptTemplate(PromptTemplates.PUSH);
+        WorkflowState human = state(states, board, "human", 4, GateType.HUMAN, null);
+        // Petri opens the pull request when a card arrives here, after checking
+        // that what is on the branch is what was approved.
+        human.setPublish(true);
+        WorkflowState done = state(states, board, "done", 5, GateType.NONE, null);
         done.setTerminal(true);
 
         planner.setNextOnPass(implement);
         planner.setNextOnFail(planner);
         implement.setNextOnPass(review);
         implement.setNextOnFail(implement);
-        review.setNextOnPass(human);
+        review.setNextOnPass(push);
         review.setNextOnFail(implement);
+        push.setNextOnPass(human);
+        push.setNextOnFail(push);
         human.setNextOnPass(done);
-        states.saveAll(List.of(planner, implement, review, human, done));
+        states.saveAll(List.of(planner, implement, review, push, human, done));
 
         Card queued = card(cards, board, planner, "Add rate limiting to the public API", null);
 

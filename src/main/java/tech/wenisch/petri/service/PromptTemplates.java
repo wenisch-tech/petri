@@ -1,5 +1,7 @@
 package tech.wenisch.petri.service;
 
+import tech.wenisch.petri.entity.GateType;
+
 /**
  * The contract between Petri and whatever agent it is driving.
  *
@@ -17,6 +19,26 @@ package tech.wenisch.petri.service;
 public final class PromptTemplates {
 
     private PromptTemplates() {
+    }
+
+    /**
+     * The prompt a state gets when it has not been given one.
+     *
+     * <p>Chosen by gate, because the gate is what the state's output has to
+     * satisfy: a plan-shape gate wants a plan, a repository gate wants a diff,
+     * a verdict gate wants something to judge. A state whose gate implies no
+     * particular shape gets the task and nothing else - including the pushing
+     * state, whose gate is NONE and which therefore has to be given
+     * {@link #PUSH} explicitly. That is deliberate: guessing that every
+     * ungated state wants to push would be a bad guess to make silently.
+     */
+    public static String defaultFor(GateType gate) {
+        return switch (gate) {
+            case PLAN_SHAPE -> PLAN;
+            case REPOSITORY -> IMPLEMENT;
+            case LLM_VERDICT -> REVIEW;
+            case NONE, HUMAN -> "{{title}}\n\n{{description}}";
+        };
     }
 
     /** Clone if needed, work, commit, and report - but do not push. */
@@ -44,6 +66,23 @@ public final class PromptTemplates {
             Task: {{title}}
 
             {{description}}
+            """;
+
+    /**
+     * Put the change in front of the reviewing model.
+     *
+     * <p>A turn of its own, rather than reusing what the implementer said,
+     * because a gate reads the run in its own state. The turn is cheap - it is
+     * one git command - and the alternative is a gate that reaches backwards
+     * into another state's history to find something to judge.
+     */
+    public static final String REVIEW = """
+            The change on branch {{branch}} in {{workspace}} is about to be
+            reviewed.
+
+            Do not change anything. Reply with the complete diff of {{branch}}
+            against the default branch, inside a fenced block marked ```diff, and
+            a short note of what it does.
             """;
 
     /** Push what was already committed and checked. */

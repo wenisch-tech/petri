@@ -302,7 +302,7 @@ public class RunLedger {
     private String prompt(Card card, WorkflowState state) {
         String template = state.getPromptTemplate();
         if (template == null || template.isBlank()) {
-            template = "{{title}}\n\n{{description}}";
+            template = PromptTemplates.defaultFor(state.getGate());
         }
         return template
                 .replace("{{workspace}}", workspaceFor(card))
