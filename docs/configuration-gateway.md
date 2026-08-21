@@ -97,6 +97,13 @@ signal. `request-timeout` bounds a single HTTP call and has nothing to do with
 how long a turn may take - without it, a gateway that accepts a connection and
 then stops answering would wedge the poller that exists to detect exactly that.
 
+!!! tip "Also editable at `/settings/policy`, live"
+    `idle-timeout`, `max-duration`, `startup-grace`, `max-concurrent-runs`,
+    `workspace-root`, the gate's `protected-paths` and `branch-prefix` can all be
+    overridden through the Policy screen without a restart - the environment
+    values above are what an override falls back to once cleared. `request-timeout`
+    is not among them: it shapes the HTTP client itself, built once at startup.
+
 ## The prompt contract
 
 Petri drives the agent with instructions, not with an API. A state that has no

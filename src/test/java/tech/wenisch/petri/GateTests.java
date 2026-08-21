@@ -6,6 +6,7 @@ import tech.wenisch.petri.gate.*;
 import tech.wenisch.petri.gateway.*;
 import tech.wenisch.petri.review.ReviewException;
 import tech.wenisch.petri.review.ReviewModel;
+import tech.wenisch.petri.service.PolicySettingsService;
 
 import java.util.List;
 import java.util.Map;
@@ -63,9 +64,31 @@ class GateTests {
             +int answer = 42;
             """;
 
+    /**
+     * Overrides the two live-policy reads directly rather than going through a
+     * repository, since production {@code PolicySettingsService} reads the
+     * database on every call and this test has none.
+     */
+    private static class FixedPolicy extends PolicySettingsService {
+        FixedPolicy() {
+            super(null, new GatewayProperties(null, null, null, null, null, null, null, null),
+                    1, "/workspaces/petri",
+                    List.of(".github/**", "Dockerfile", "**/Dockerfile"), "petri/");
+        }
+
+        @Override
+        public List<String> protectedPaths() {
+            return List.of(".github/**", "Dockerfile", "**/Dockerfile");
+        }
+
+        @Override
+        public String branchPrefix() {
+            return "petri/";
+        }
+    }
+
     private RepositoryGate repositoryGate() {
-        return new RepositoryGate(new ChangeInspector(
-                java.util.List.of(".github/**", "Dockerfile", "**/Dockerfile"), "petri/"));
+        return new RepositoryGate(new ChangeInspector(), new FixedPolicy());
     }
 
     // ---------------------------------------------------------------- repository

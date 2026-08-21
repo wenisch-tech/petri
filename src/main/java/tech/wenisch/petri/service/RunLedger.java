@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.beans.factory.annotation.Value;
 import tech.wenisch.petri.forge.ForgeClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,8 +70,7 @@ public class RunLedger {
 
     private final Map<Forge, ForgeClient> forges;
     private final Redactor redactor;
-    private final String workspaceRoot;
-    private final int maxConcurrentRuns;
+    private final PolicySettingsService settings;
     private final BoardRepository boards;
     private final WorkflowStateRepository states;
     private final CardRepository cards;
@@ -80,16 +78,14 @@ public class RunLedger {
 
     public RunLedger(Map<Forge, ForgeClient> forges,
                      Redactor redactor,
-                     @Value("${petri.workspace-root:/workspaces/petri}") String workspaceRoot,
-                     @Value("${petri.max-concurrent-runs:1}") int maxConcurrentRuns,
+                     PolicySettingsService settings,
                      BoardRepository boards,
                      WorkflowStateRepository states,
                      CardRepository cards,
                      AgentRunRepository runs) {
         this.forges = forges;
         this.redactor = redactor;
-        this.workspaceRoot = workspaceRoot;
-        this.maxConcurrentRuns = Math.max(1, maxConcurrentRuns);
+        this.settings = settings;
         this.boards = boards;
         this.states = states;
         this.cards = cards;
@@ -111,7 +107,7 @@ public class RunLedger {
         // produces nothing while it waits, which is indistinguishable from a
         // hung turn and gets it aborted for silence. Raise it only where turns
         // really do run in parallel.
-        if (openRuns().size() >= maxConcurrentRuns) {
+        if (openRuns().size() >= settings.maxConcurrentRuns()) {
             return Optional.empty();
         }
 
@@ -287,7 +283,7 @@ public class RunLedger {
      * arrangement this replaces is exactly what forced work to run one at a time.
      */
     private String workspaceFor(Card card) {
-        return workspaceRoot + "/card-" + card.getId();
+        return settings.workspaceRoot() + "/card-" + card.getId();
     }
 
     private String cloneUrl(Card card) {

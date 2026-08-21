@@ -14,7 +14,6 @@ import tech.wenisch.petri.entity.WorkflowState;
 import tech.wenisch.petri.gate.GateOutcome;
 import tech.wenisch.petri.gate.GateRegistry;
 import tech.wenisch.petri.gateway.AgentGateway;
-import tech.wenisch.petri.gateway.GatewayProperties;
 import tech.wenisch.petri.gateway.SessionSnapshot;
 import tech.wenisch.petri.gateway.SessionState;
 
@@ -40,7 +39,7 @@ public class LivenessService {
 
     private final RunLedger ledger;
     private final AgentGateway gateway;
-    private final GatewayProperties properties;
+    private final PolicySettingsService settings;
     private final GateRegistry gates;
     private final TransitionService transitions;
     private final PublishService publisher;
@@ -48,14 +47,14 @@ public class LivenessService {
 
     public LivenessService(RunLedger ledger,
                            AgentGateway gateway,
-                           GatewayProperties properties,
+                           PolicySettingsService settings,
                            GateRegistry gates,
                            TransitionService transitions,
                            PublishService publisher,
                            PetriMetrics metrics) {
         this.ledger = ledger;
         this.gateway = gateway;
-        this.properties = properties;
+        this.settings = settings;
         this.gates = gates;
         this.transitions = transitions;
         this.publisher = publisher;
@@ -125,12 +124,12 @@ public class LivenessService {
     private boolean withinStartupGrace(RunLedger.OpenRun run, Instant now) {
         return run.startedAt() != null
                 && Duration.between(run.startedAt(), now)
-                        .compareTo(properties.startupGrace()) < 0;
+                        .compareTo(settings.startupGrace()) < 0;
     }
 
     private void enforceBounds(RunLedger.OpenRun run, Instant now) {
         Duration silence = run.silenceFor(now);
-        if (silence.compareTo(properties.idleTimeout()) > 0) {
+        if (silence.compareTo(settings.idleTimeout()) > 0) {
             gateway.abort(run.sessionId());
             finish(run, RunStatus.ABORTED,
                     "produced no output for " + silence.toMinutes() + "m", now);
@@ -138,7 +137,7 @@ public class LivenessService {
         }
 
         if (run.startedAt() != null
-                && Duration.between(run.startedAt(), now).compareTo(properties.maxDuration()) > 0) {
+                && Duration.between(run.startedAt(), now).compareTo(settings.maxDuration()) > 0) {
             gateway.abort(run.sessionId());
             finish(run, RunStatus.ABORTED, "ran past the ceiling", now);
             return;

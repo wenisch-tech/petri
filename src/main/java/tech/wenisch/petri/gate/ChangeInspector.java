@@ -3,7 +3,6 @@ package tech.wenisch.petri.gate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import tech.wenisch.petri.forge.BranchChange;
 import tech.wenisch.petri.forge.ChangedFile;
@@ -16,6 +15,11 @@ import tech.wenisch.petri.forge.ChangedFile;
  * what actually landed. Both matter and they fail differently - the first stops
  * a mistake reaching the remote, the second catches an agent whose report did
  * not match its commits.
+ *
+ * <p>Stateless on purpose: {@code protectedPaths} and {@code branchPrefix} are
+ * policy that can change while Petri is running, so the caller reads the
+ * current value from {@code PolicySettingsService} and passes it in, rather
+ * than this class holding a value fixed at startup.
  */
 @Component
 public class ChangeInspector {
@@ -37,19 +41,9 @@ public class ChangeInspector {
     private record Rule(Pattern pattern, String label) {
     }
 
-    private final List<String> protectedPaths;
-    private final String branchPrefix;
-
-    public ChangeInspector(
-            @Value("${petri.gate.protected-paths:.github/**,.forgejo/**,Dockerfile,**/Dockerfile,*.tfstate,**/*.tfstate}")
-            List<String> protectedPaths,
-            @Value("${petri.gate.branch-prefix:petri/}") String branchPrefix) {
-        this.protectedPaths = protectedPaths;
-        this.branchPrefix = branchPrefix;
-    }
-
     /** Problems that must block a push. Empty means nothing objectionable. */
-    public List<String> inspect(BranchChange change, String branch, String defaultBranch) {
+    public List<String> inspect(BranchChange change, String branch, String defaultBranch,
+                                List<String> protectedPaths, String branchPrefix) {
         List<String> problems = new ArrayList<>();
 
         if (branch == null || branch.isBlank()) {
@@ -69,7 +63,7 @@ public class ChangeInspector {
 
         List<String> blocked = change.files().stream()
                 .map(ChangedFile::path)
-                .filter(this::isProtected)
+                .filter(path -> isProtected(path, protectedPaths))
                 .toList();
         if (!blocked.isEmpty()) {
             problems.add("changes touch protected paths: " + String.join(", ", blocked));
@@ -125,7 +119,7 @@ public class ChangeInspector {
         return false;
     }
 
-    private boolean isProtected(String path) {
+    private boolean isProtected(String path, List<String> protectedPaths) {
         for (String rule : protectedPaths) {
             if (matches(path, rule.trim())) {
                 return true;

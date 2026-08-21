@@ -37,13 +37,16 @@ public class PublishService {
 
     private final Map<Forge, ForgeClient> forges;
     private final ChangeInspector inspector;
+    private final PolicySettingsService settings;
     private final PetriMetrics metrics;
 
     public PublishService(Map<Forge, ForgeClient> forges,
                           ChangeInspector inspector,
+                          PolicySettingsService settings,
                           PetriMetrics metrics) {
         this.forges = forges;
         this.inspector = inspector;
+        this.settings = settings;
         this.metrics = metrics;
     }
 
@@ -92,7 +95,8 @@ public class PublishService {
                 return new Published("nothing was pushed to " + branch, null);
             }
 
-            List<String> problems = inspector.inspect(landed, branch, base);
+            List<String> problems = inspector.inspect(landed, branch, base,
+                    settings.protectedPaths(), settings.branchPrefix());
             if (!problems.isEmpty()) {
                 // What landed differs from what was approved. Remove it rather
                 // than leave a rejected branch sitting on the forge.

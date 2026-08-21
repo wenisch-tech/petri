@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Policy', ~{::content})}">
+<body>
+<th:block th:fragment="content">
+    <div class="d-flex align-items-baseline mb-3">
+        <h1 class="h4 fw-medium mb-0">Settings</h1>
+        <div class="ms-3">
+            <a class="btn btn-sm btn-outline-secondary me-1" th:href="@{/settings/connections}">Connections</a>
+            <a class="btn btn-sm btn-primary" th:href="@{/settings/policy}">Policy</a>
+        </div>
+    </div>
+
+    <p class="text-secondary small">
+        Every field here can already be set as an environment variable at
+        deploy time. This is a second way to set the same thing - it takes
+        effect on the very next poll cycle, no restart needed, and clearing a
+        field back to blank returns it to whatever the environment specifies.
+        Nothing here is a secret.
+    </p>
+
+    <div class="alert alert-success py-2 small" th:if="${saved != null}">Policy saved.</div>
+    <div class="alert alert-warning py-2 small" th:if="${error != null}" th:text="${error}">error</div>
+
+    <form method="post" th:action="@{/settings/policy}" class="card border-0 shadow-sm" style="max-width: 40rem;">
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label small fw-medium" for="maxConcurrentRuns">Max concurrent runs</label>
+                <input class="form-control form-control-sm" type="number" min="1"
+                       id="maxConcurrentRuns" name="maxConcurrentRuns"
+                       th:value="${overlay.maxConcurrentRuns}"
+                       th:placeholder="${defaults.maxConcurrentRuns()}">
+                <div class="form-text">
+                    Currently in force: <span th:text="${effective.maxConcurrentRuns()}">1</span>.
+                    Where model calls serialise on one GPU, a second turn spends
+                    its time queued and silent - which is exactly what gets a run
+                    aborted for silence. Raise this only where turns genuinely run
+                    in parallel.
+                </div>
+            </div>
+
+            <div class="row g-3 mb-1">
+                <div class="col-4">
+                    <label class="form-label small fw-medium" for="idleTimeout">Idle timeout</label>
+                    <input class="form-control form-control-sm" id="idleTimeout" name="idleTimeout"
+                           th:value="${overlay.idleTimeout}" th:placeholder="${defaults.idleTimeout()}">
+                </div>
+                <div class="col-4">
+                    <label class="form-label small fw-medium" for="maxDuration">Max duration</label>
+                    <input class="form-control form-control-sm" id="maxDuration" name="maxDuration"
+                           th:value="${overlay.maxDuration}" th:placeholder="${defaults.maxDuration()}">
+                </div>
+                <div class="col-4">
+                    <label class="form-label small fw-medium" for="startupGrace">Startup grace</label>
+                    <input class="form-control form-control-sm" id="startupGrace" name="startupGrace"
+                           th:value="${overlay.startupGrace}" th:placeholder="${defaults.startupGrace()}">
+                </div>
+            </div>
+            <div class="form-text mb-3">
+                ISO-8601, e.g. <code>PT15M</code> for 15 minutes, <code>PT1H</code> for one hour.
+                In force: idle <span th:text="${effective.idleTimeout()}">PT15M</span>,
+                max <span th:text="${effective.maxDuration()}">PT1H</span>,
+                grace <span th:text="${effective.startupGrace()}">PT2M</span>.
+                A run is stopped for producing <strong>nothing</strong> for the idle
+                timeout - wall-clock elapsed time is not the signal, since one model
+                call on a contended GPU has been measured at 278 seconds. Keep max
+                duration comfortably above idle timeout, or silence stops being the
+                deciding bound.
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label small fw-medium" for="workspaceRoot">Workspace root</label>
+                <input class="form-control form-control-sm" id="workspaceRoot" name="workspaceRoot"
+                       th:value="${overlay.workspaceRoot}" th:placeholder="${defaults.workspaceRoot()}">
+                <div class="form-text">
+                    Where the agent works. One directory per card is created
+                    beneath this path, on the agent's own filesystem - Petri
+                    never opens it. In force:
+                    <code th:text="${effective.workspaceRoot()}">/workspaces/petri</code>.
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label small fw-medium" for="branchPrefix">Branch prefix</label>
+                <input class="form-control form-control-sm" id="branchPrefix" name="branchPrefix"
+                       th:value="${overlay.branchPrefix}" th:placeholder="${defaults.branchPrefix()}">
+                <div class="form-text">
+                    The repository gate refuses any branch that does not start
+                    with this. In force:
+                    <code th:text="${effective.branchPrefix()}">petri/</code>.
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label small fw-medium" for="protectedPaths">Protected paths</label>
+                <textarea class="form-control form-control-sm" id="protectedPaths" name="protectedPaths"
+                          rows="2" th:text="${overlay.protectedPaths}"
+                          th:placeholder="${defaultProtectedPaths}"></textarea>
+                <div class="form-text">
+                    Comma-separated globs; <code>**</code> crosses directory
+                    boundaries. A change touching any of these fails the
+                    repository gate outright. In force:
+                    <code th:text="${effective.protectedPaths()}">.github/**</code>.
+                </div>
+            </div>
+
+            <button class="btn btn-sm btn-primary" type="submit">Save</button>
+        </div>
+    </form>
+
+    <p class="text-secondary petri-gate mt-3">
+        Not editable here: the runner and liveness poll intervals
+        (<code>petri.runner.interval</code>, <code>petri.liveness.interval</code>).
+        Spring resolves those once when the scheduled task is created, so
+        changing them takes a restart regardless of where they are set.
+    </p>
+</th:block>
+</body>
+</html>

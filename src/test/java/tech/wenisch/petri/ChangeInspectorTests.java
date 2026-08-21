@@ -12,9 +12,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** The mechanical checks: branch discipline, protected paths, and credentials. */
 class ChangeInspectorTests {
 
-    private final ChangeInspector inspector = new ChangeInspector(
-            List.of(".github/**", ".forgejo/**", "Dockerfile", "**/Dockerfile", "*.tfstate"),
-            "petri/");
+    private static final List<String> PROTECTED_PATHS =
+            List.of(".github/**", ".forgejo/**", "Dockerfile", "**/Dockerfile", "*.tfstate");
+    private static final String BRANCH_PREFIX = "petri/";
+
+    private final RecordingInspector inspector = new RecordingInspector();
+
+    /**
+     * Fixes protected-paths and branch-prefix to constants for the rest of this
+     * test class, since the class itself is now a stateless helper that reads
+     * them live from {@code PolicySettingsService} in production.
+     */
+    private static class RecordingInspector extends ChangeInspector {
+        List<String> inspect(BranchChange change, String branch, String defaultBranch) {
+            return inspect(change, branch, defaultBranch, PROTECTED_PATHS, BRANCH_PREFIX);
+        }
+    }
 
     private BranchChange change(List<String> files, String... patches) {
         return new BranchChange(

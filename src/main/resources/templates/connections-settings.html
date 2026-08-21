@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Connections', ~{::content})}">
+<body>
+<th:block th:fragment="content">
+    <div class="d-flex align-items-baseline mb-3">
+        <h1 class="h4 fw-medium mb-0">Settings</h1>
+        <div class="ms-3">
+            <a class="btn btn-sm btn-primary me-1" th:href="@{/settings/connections}">Connections</a>
+            <a class="btn btn-sm btn-outline-secondary" th:href="@{/settings/policy}">Policy</a>
+        </div>
+    </div>
+
+    <p class="text-secondary small">
+        What Petri is configured to talk to. Read-only here - these carry
+        credentials, and editing them through a form would move a secret out of
+        wherever it is deployed today (an environment variable, a mounted
+        Secret). What this page can do is turn "is the URL wrong" from a fact
+        found in a startup log into an answer in five seconds.
+    </p>
+
+    <div class="row g-3">
+        <div class="col-12 col-lg-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h6 fw-medium">Agent gateway</h2>
+
+                    <dl class="row small mb-2">
+                        <dt class="col-5">Base URL</dt>
+                        <dd class="col-7 text-truncate" th:text="${gateway.baseUrl() ?: '(not set)'}">-</dd>
+                        <dt class="col-5">Username</dt>
+                        <dd class="col-7" th:text="${gateway.username()}">-</dd>
+                        <dt class="col-5">Password</dt>
+                        <dd class="col-7">
+                            <span th:if="${gateway.password() != null and !gateway.password().isBlank()}"
+                                  class="badge text-bg-light border">set</span>
+                            <span th:unless="${gateway.password() != null and !gateway.password().isBlank()}"
+                                  class="text-secondary">not set</span>
+                        </dd>
+                        <dt class="col-5">Enabled</dt>
+                        <dd class="col-7" th:text="${gateway.enabled()}">-</dd>
+                    </dl>
+
+                    <form method="post" th:action="@{/settings/connections/test/gateway}">
+                        <button class="btn btn-sm btn-outline-secondary" type="submit">Test connection</button>
+                    </form>
+
+                    <div class="alert alert-success py-1 px-2 small mt-2 mb-0"
+                         th:if="${gatewayOk != null and gatewayOk}" th:text="${gatewayDetail}">ok</div>
+                    <div class="alert alert-danger py-1 px-2 small mt-2 mb-0"
+                         th:if="${gatewayOk != null and !gatewayOk}" th:text="${gatewayDetail}">error</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h6 fw-medium">Forge</h2>
+
+                    <p class="text-secondary small fst-italic" th:if="${forges.isEmpty()}">
+                        No forge configured.
+                    </p>
+
+                    <div th:each="entry : ${forges}" class="mb-3">
+                        <div class="fw-medium small" th:text="${entry.key}">FORGEJO</div>
+                        <dl class="row small mb-2">
+                            <dt class="col-5">Base URL</dt>
+                            <dd class="col-7 text-truncate" th:text="${entry.value.baseUrl}">-</dd>
+                            <dt class="col-5">Token</dt>
+                            <dd class="col-7">
+                                <span th:if="${entry.value.token != null and !entry.value.token.isBlank()}"
+                                      class="badge text-bg-light border">set</span>
+                                <span th:unless="${entry.value.token != null and !entry.value.token.isBlank()}"
+                                      class="text-secondary">not set</span>
+                            </dd>
+                            <dt class="col-5">Hands agent a token</dt>
+                            <dd class="col-7" th:text="${entry.value.handTokenToAgent}">-</dd>
+                        </dl>
+
+                        <form method="post" th:action="@{/settings/connections/test/forge/{forge}(forge=${entry.key})}">
+                            <button class="btn btn-sm btn-outline-secondary" type="submit">Test connection</button>
+                        </form>
+
+                        <div class="alert alert-success py-1 px-2 small mt-2 mb-0"
+                             th:if="${testedForge != null and testedForge == entry.key and forgeOk}"
+                             th:text="${forgeDetail}">ok</div>
+                        <div class="alert alert-danger py-1 px-2 small mt-2 mb-0"
+                             th:if="${testedForge != null and testedForge == entry.key and !forgeOk}"
+                             th:text="${forgeDetail}">error</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h6 fw-medium">Reviewing model</h2>
+
+                    <dl class="row small mb-2">
+                        <dt class="col-5">Base URL</dt>
+                        <dd class="col-7 text-truncate" th:text="${review.baseUrl() ?: '(not set)'}">-</dd>
+                        <dt class="col-5">Model</dt>
+                        <dd class="col-7" th:text="${review.model()}">-</dd>
+                        <dt class="col-5">API key</dt>
+                        <dd class="col-7">
+                            <span th:if="${review.apiKey() != null and !review.apiKey().isBlank()}"
+                                  class="badge text-bg-light border">set</span>
+                            <span th:unless="${review.apiKey() != null and !review.apiKey().isBlank()}"
+                                  class="text-secondary">not set</span>
+                        </dd>
+                    </dl>
+
+                    <p class="text-secondary petri-gate" th:unless="${review.configured()}">
+                        Unset. Verdict gates hold rather than pass until this is configured.
+                    </p>
+
+                    <form method="post" th:action="@{/settings/connections/test/review}">
+                        <button class="btn btn-sm btn-outline-secondary" type="submit">Test connection</button>
+                    </form>
+
+                    <div class="alert alert-success py-1 px-2 small mt-2 mb-0"
+                         th:if="${reviewOk != null and reviewOk}" th:text="${reviewDetail}">ok</div>
+                    <div class="alert alert-danger py-1 px-2 small mt-2 mb-0"
+                         th:if="${reviewOk != null and !reviewOk}" th:text="${reviewDetail}">error</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</th:block>
+</body>
+</html>

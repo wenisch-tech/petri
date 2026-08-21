@@ -8,6 +8,7 @@ import tech.wenisch.petri.entity.Card;
 import tech.wenisch.petri.entity.GateType;
 import tech.wenisch.petri.entity.RunStatus;
 import tech.wenisch.petri.forge.BranchChange;
+import tech.wenisch.petri.service.PolicySettingsService;
 
 /**
  * Inspects the change <em>before</em> it is pushed.
@@ -27,9 +28,11 @@ public class RepositoryGate implements Gate {
     private static final Logger LOG = LoggerFactory.getLogger(RepositoryGate.class);
 
     private final ChangeInspector inspector;
+    private final PolicySettingsService settings;
 
-    public RepositoryGate(ChangeInspector inspector) {
+    public RepositoryGate(ChangeInspector inspector, PolicySettingsService settings) {
         this.inspector = inspector;
+        this.settings = settings;
     }
 
     @Override
@@ -55,7 +58,8 @@ public class RepositoryGate implements Gate {
 
         BranchChange reported = BranchChange.fromReportedPatch(patch);
         var problems = inspector.inspect(reported, card.getBranch(),
-                card.getBoard().getDefaultBranch());
+                card.getBoard().getDefaultBranch(),
+                settings.protectedPaths(), settings.branchPrefix());
 
         if (problems.isEmpty()) {
             LOG.debug("Card {} passed inspection over {} files",
