@@ -31,6 +31,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                       minutes while remaining perfectly healthy.
  * @param maxDuration    hard ceiling, so a run that keeps emitting cannot occupy
  *                       the agent forever
+ * @param startupGrace   how long a freshly started run may be absent from the
+ *                       gateway's status before it is considered finished. The
+ *                       gateway lists only sessions that are busy, so a run is
+ *                       invisible between being created and producing its first
+ *                       output; without this it would be concluded instantly
  */
 @ConfigurationProperties(prefix = "petri.gateway")
 public record GatewayProperties(
@@ -42,7 +47,8 @@ public record GatewayProperties(
         Boolean enabled,
         Duration requestTimeout,
         Duration idleTimeout,
-        Duration maxDuration) {
+        Duration maxDuration,
+        Duration startupGrace) {
 
     public GatewayProperties {
         baseUrl = baseUrl == null ? "" : baseUrl;
@@ -58,5 +64,6 @@ public record GatewayProperties(
         requestTimeout = requestTimeout == null ? Duration.ofSeconds(30) : requestTimeout;
         idleTimeout = idleTimeout == null ? Duration.ofMinutes(15) : idleTimeout;
         maxDuration = maxDuration == null ? Duration.ofHours(1) : maxDuration;
+        startupGrace = startupGrace == null ? Duration.ofMinutes(2) : startupGrace;
     }
 }

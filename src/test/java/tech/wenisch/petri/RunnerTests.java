@@ -56,9 +56,11 @@ class RunnerTests {
 
         @Override
         public Map<String, SessionSnapshot> observe(List<String> sessionIds) {
+            // Mirrors the real gateway: sessions it is not actively running are
+            // simply absent, and the adapter renders that as IDLE.
             Map<String, SessionSnapshot> out = new HashMap<>();
-            sessionIds.forEach(id -> out.put(id,
-                    snapshots.getOrDefault(id, SessionSnapshot.unknown(id))));
+            sessionIds.forEach(id -> out.put(id, snapshots.getOrDefault(id,
+                    new SessionSnapshot(id, SessionState.IDLE, null, null))));
             return out;
         }
 
@@ -238,6 +240,10 @@ class RunnerTests {
         runner.startEligibleWork();
         AgentRun run = runs.findFirstByCardOrderByIdDesc(card).orElseThrow();
 
+        // Past the startup grace: idle now means finished rather than not yet
+        // begun. A real completion is always past it, since the turn had to run.
+        run.setStartedAt(Instant.now().minus(Duration.ofMinutes(10)));
+        runs.save(run);
         fake.snapshots.put(run.getSessionId(), new SessionSnapshot(
                 run.getSessionId(), SessionState.IDLE, Instant.now(), null));
 
@@ -265,7 +271,7 @@ class RunnerTests {
         run.setAttempt(1);
         run.setSessionId("ses_human000000001");
         run.setStatus(RunStatus.RUNNING);
-        run.setStartedAt(Instant.now());
+        run.setStartedAt(Instant.now().minus(Duration.ofMinutes(10)));
         run.setLastEventAt(Instant.now());
         runs.save(run);
 
@@ -292,6 +298,60 @@ class RunnerTests {
         AgentRun after = runs.findById(run.getId()).orElseThrow();
         assertThat(after.getStatus()).isEqualTo(RunStatus.RUNNING);
         assertThat(after.getSummary()).isEqualTo("provider timed out");
+    }
+
+    @Test
+    void aRunAbsentFromStatusIsNotTreatedAsLostWhileStarting() {
+        runner.startEligibleWork();
+        AgentRun run = runs.findFirstByCardOrderByIdDesc(card).orElseThrow();
+
+        // The live gateway lists only busy sessions, so a run that has not yet
+        // produced anything is simply missing from the status map. Concluding
+        // on that would end every run seconds after starting it.
+        fake.snapshots.clear();
+
+        liveness.observeOpenRuns();
+
+        assertThat(runs.findById(run.getId()).orElseThrow().getStatus())
+                .isEqualTo(RunStatus.RUNNING);
+    }
+
+    @Test
+    void anAbsentRunPastTheGracePeriodIsTreatedAsFinished() {
+        runner.startEligibleWork();
+        AgentRun run = runs.findFirstByCardOrderByIdDesc(card).orElseThrow();
+        run.setStartedAt(Instant.now().minus(Duration.ofMinutes(10)));
+        runs.save(run);
+        fake.snapshots.clear();
+
+        liveness.observeOpenRuns();
+
+        assertThat(runs.findById(run.getId()).orElseThrow().getStatus())
+                .isEqualTo(RunStatus.SUCCEEDED);
+    }
+
+    @Test
+    void aRunThatNeverGotASessionDoesNotBlockTheBoardForever() {
+        // Exactly the state a crash between recording a run and starting it
+        // leaves behind. Dispatch is serialised, so an unresolvable open run
+        // stops every board on the instance - this one wedged a real deployment.
+        AgentRun orphan = new AgentRun();
+        orphan.setCard(card);
+        orphan.setState(implement);
+        orphan.setAttempt(1);
+        orphan.setStatus(RunStatus.PENDING);
+        orphan.setStartedAt(Instant.now().minus(Duration.ofMinutes(10)));
+        runs.save(orphan);
+
+        liveness.observeOpenRuns();
+
+        AgentRun after = runs.findById(orphan.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(RunStatus.FAILED);
+        assertThat(after.getSummary()).contains("never received a session id");
+
+        // And the board moves again.
+        runner.startEligibleWork();
+        assertThat(fake.started).isNotEmpty();
     }
 
     private void finishLatestAs(RunStatus status) {

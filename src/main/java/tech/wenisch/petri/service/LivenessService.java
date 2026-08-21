@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tech.wenisch.petri.entity.AgentRun;
@@ -39,27 +38,25 @@ public class LivenessService {
     private final GatewayProperties properties;
     private final GateRegistry gates;
     private final TransitionService transitions;
+    private final PublishService publisher;
+    private final PetriMetrics metrics;
 
     public LivenessService(AgentRunRepository runs,
                            AgentGateway gateway,
                            GatewayProperties properties,
                            GateRegistry gates,
-                           TransitionService transitions) {
+                           TransitionService transitions,
+                           PublishService publisher,
+                           PetriMetrics metrics) {
         this.runs = runs;
         this.gateway = gateway;
         this.properties = properties;
         this.gates = gates;
         this.transitions = transitions;
+        this.publisher = publisher;
+        this.metrics = metrics;
     }
 
-    @Scheduled(fixedDelayString = "${petri.liveness.interval:PT10S}")
-    public void poll() {
-        try {
-            observeOpenRuns();
-        } catch (RuntimeException ex) {
-            LOG.error("Liveness cycle failed", ex);
-        }
-    }
 
     @Transactional
     public void observeOpenRuns() {
@@ -83,13 +80,36 @@ public class LivenessService {
     }
 
     private void apply(AgentRun run, SessionSnapshot snapshot, Instant now) {
+        // A run with no session id never got as far as the gateway. That happens
+        // if the process dies between recording the run and starting it, and
+        // nothing else can ever resolve it: there is no session to ask about.
+        // Left alone it stays open forever and - because dispatch is serialised -
+        // blocks every board on the instance. One such run, orphaned by a crash,
+        // wedged a running deployment.
+        if (run.getSessionId() == null || run.getSessionId().isBlank()) {
+            if (!withinStartupGrace(run, now)) {
+                finish(run, RunStatus.FAILED, "never received a session id", now);
+            }
+            return;
+        }
+
         if (snapshot != null && snapshot.lastEventAt() != null) {
             run.setLastEventAt(snapshot.lastEventAt());
         }
 
         SessionState state = snapshot == null ? SessionState.UNKNOWN : snapshot.state();
         switch (state) {
-            case IDLE -> finish(run, RunStatus.SUCCEEDED, "session went idle", now);
+            case IDLE -> {
+                // A run is absent from the gateway's status until it starts
+                // producing, so "idle" immediately after starting means "not
+                // begun yet", not "done". Concluding here would end every run
+                // within seconds of creating it.
+                if (withinStartupGrace(run, now)) {
+                    runs.save(run);
+                } else {
+                    finish(run, RunStatus.SUCCEEDED, "session went idle", now);
+                }
+            }
             case RETRY -> {
                 // Still alive, and saying why it is slow. Surfacing the reason is
                 // better than a card that merely looks stuck.
@@ -105,6 +125,12 @@ public class LivenessService {
                 }
             }
         }
+    }
+
+    private boolean withinStartupGrace(AgentRun run, Instant now) {
+        return run.getStartedAt() != null
+                && Duration.between(run.getStartedAt(), now)
+                        .compareTo(properties.startupGrace()) < 0;
     }
 
     private void enforceBounds(AgentRun run, Instant now) {
@@ -135,6 +161,7 @@ public class LivenessService {
             run.setOutput(gateway.lastMessage(run.getSessionId()));
         }
         runs.save(run);
+        metrics.runFinished(status);
         LOG.info("Run {} finished: {} ({})", run.getId(), status, reason);
         decide(run);
     }
@@ -145,14 +172,24 @@ public class LivenessService {
         WorkflowState state = run.getState();
 
         GateOutcome outcome = gates.evaluate(state.getGate(), card, run);
+        metrics.gateEvaluated(state.getGate().name(), outcome.decision());
         switch (outcome.decision()) {
             case PASS -> {
                 if (state.getNextOnPass() == null) {
                     LOG.info("Card {} passed {} with nowhere to go", card.getId(), state.getName());
                     return;
                 }
-                transitions.move(card, state.getNextOnPass(),
-                        actor(state), outcome.reason(), run);
+                WorkflowState target = state.getNextOnPass();
+                transitions.move(card, target, actor(state), outcome.reason(), run);
+
+                // Publishing happens on arrival, so the state that opens the
+                // pull request is named in the pipeline rather than inferred
+                // from being last.
+                String published = publisher.publish(card, target);
+                if (published != null) {
+                    metrics.published(card.getPullRequestUrl() != null);
+                    transitions.note(card, target, "publish", published, run);
+                }
             }
             case FAIL -> {
                 if (state.getNextOnFail() == null || state.getNextOnFail().equals(state)) {

@@ -31,7 +31,7 @@ class GatewayDefaultsTests {
         // false and disable the runner silently. Boolean plus this default keeps
         // the code and application.properties saying the same thing.
         GatewayProperties defaults = new GatewayProperties(
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
 
         assertThat(defaults.enabled()).isTrue();
         assertThat(defaults.baseUrl()).isEmpty();

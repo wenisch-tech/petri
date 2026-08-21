@@ -63,6 +63,15 @@ public class WorkflowState {
     @JoinColumn(name = "next_on_fail")
     private WorkflowState nextOnFail;
 
+    /**
+     * Push the branch and open a pull request when a card enters this state.
+     *
+     * <p>Explicit rather than implied by position: "the last state publishes"
+     * would silently change meaning the moment someone adds a state after it.
+     */
+    @Column(nullable = false)
+    private boolean publish = false;
+
     /** Attempts in this state before the card stops being retried. */
     @Column(name = "max_attempts", nullable = false)
     private int maxAttempts = 3;

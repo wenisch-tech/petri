@@ -114,8 +114,13 @@ public class HttpAgentGateway implements AgentGateway {
         Map<String, SessionSnapshot> snapshots = new HashMap<>();
         for (String id : sessionIds) {
             Object raw = response == null ? null : response.get(id);
+            // Absent means not busy, NOT gone. A live gateway was observed
+            // returning {} while a session existed: it reports only sessions
+            // that are doing something. Treating absence as a lost session
+            // would kill every run the moment it stopped producing - including
+            // the moment just after it was created.
             snapshots.put(id, raw instanceof Map<?, ?> entry ? parse(id, entry)
-                    : SessionSnapshot.unknown(id));
+                    : new SessionSnapshot(id, SessionState.IDLE, null, null));
         }
         return snapshots;
     }
@@ -209,6 +214,34 @@ public class HttpAgentGateway implements AgentGateway {
     public GateReport check(String repository, String branch) {
         Map<String, Object> response = repoCommand("check", List.of());
         return new GateReport(exitCode(response) == 0, output(response));
+    }
+
+    @Override
+    public GateReport push(String repository, String branch) {
+        Map<String, Object> response = repoCommand("push", List.of());
+        return new GateReport(exitCode(response) == 0, output(response));
+    }
+
+    @Override
+    public String openPullRequest(String repository, String branch, String title, String body) {
+        Map<String, Object> response = repoCommand("pr", List.of(title, body));
+        if (exitCode(response) != 0) {
+            throw new GatewayException("could not open a pull request: " + output(response));
+        }
+        return extractUrl(output(response));
+    }
+
+    /** The shim prints a line containing the pull request URL. */
+    private String extractUrl(String output) {
+        for (String line : output.split("\\R")) {
+            int index = line.indexOf("http");
+            if (index >= 0) {
+                return line.substring(index).strip();
+            }
+        }
+        // No URL is not a failure worth losing the push over; the branch is
+        // pushed either way, and the raw output is kept on the card.
+        return output.strip();
     }
 
     /**

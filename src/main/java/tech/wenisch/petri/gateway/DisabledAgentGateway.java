@@ -40,6 +40,16 @@ public class DisabledAgentGateway implements AgentGateway {
     }
 
     @Override
+    public GateReport push(String repository, String branch) {
+        return new GateReport(false, "no agent gateway is configured, so nothing was pushed");
+    }
+
+    @Override
+    public String openPullRequest(String repository, String branch, String title, String body) {
+        throw new GatewayException("no agent gateway is configured");
+    }
+
+    @Override
     public GateReport check(String repository, String branch) {
         // Refuse rather than report a pass nobody performed: a gate that says
         // yes without checking is worse than no gate at all.

@@ -26,6 +26,7 @@ nav:
   - Configuration:
       - Database: configuration-database.md
       - Agent gateway: configuration-gateway.md
+      - Access and the API: configuration-security.md
   - Concepts:
       - Architecture: architecture.md
 markdown_extensions:

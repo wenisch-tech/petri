@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tech.wenisch.petri.entity.*;
@@ -32,34 +31,41 @@ public class RunnerService {
     private final AgentRunRepository runs;
     private final TransitionService transitionService;
     private final AgentGateway gateway;
+    private final PetriMetrics metrics;
 
     public RunnerService(BoardRepository boards,
                          WorkflowStateRepository states,
                          CardRepository cards,
                          AgentRunRepository runs,
                          TransitionService transitionService,
-                         AgentGateway gateway) {
+                         AgentGateway gateway,
+                         PetriMetrics metrics) {
         this.boards = boards;
         this.states = states;
         this.cards = cards;
         this.runs = runs;
         this.transitionService = transitionService;
         this.gateway = gateway;
+        this.metrics = metrics;
     }
 
-    @Scheduled(fixedDelayString = "${petri.runner.interval:PT10S}")
-    public void poll() {
-        try {
-            startEligibleWork();
-        } catch (RuntimeException ex) {
-            // The loop has to survive anything: one unusable card must not stop
-            // every other board from progressing.
-            LOG.error("Runner cycle failed", ex);
-        }
-    }
 
     @Transactional
     public void startEligibleWork() {
+        // One card at a time, deliberately.
+        //
+        // The gateway's repository shim acts on whichever workspace was opened
+        // last: `diff` and `check` take no repository argument. Two cards in
+        // flight would therefore check each other's branch, and the failure
+        // would be invisible - a gate passing against the wrong diff looks
+        // exactly like a gate passing.
+        //
+        // Serialising here is the honest fix while that is true. It also costs
+        // little: the agents behind the gateway queue on one GPU anyway.
+        if (!openRuns().isEmpty()) {
+            return;
+        }
+
         for (Board board : boards.findByEnabledTrue()) {
             for (WorkflowState state : states.findByBoardOrderByPositionAsc(board)) {
                 if (!state.isAutomated()) {
@@ -70,6 +76,9 @@ public class RunnerService {
                         continue;
                     }
                     start(card, state);
+                    // Started one; the next cycle picks up the next card once
+                    // this run has finished.
+                    return;
                 }
             }
         }
@@ -113,6 +122,7 @@ public class RunnerService {
             runs.save(run);
 
             transitionService.recordAttempt(card);
+            metrics.runStarted();
             LOG.info("Card {} started in {} as session {}", card.getId(), state.getName(), sessionId);
 
         } catch (GatewayException ex) {

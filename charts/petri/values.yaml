@@ -84,11 +84,27 @@ env:
   # contended GPU can legitimately take minutes.
   PETRI_GATEWAY_IDLE_TIMEOUT: "PT15M"
   PETRI_GATEWAY_MAX_DURATION: "PT1H"
+  # The gateway lists only busy sessions, so a run is invisible between being
+  # created and producing its first output.
+  PETRI_GATEWAY_STARTUP_GRACE: "PT2M"
+  # The repository shim is a second service on its own port. It holds the
+  # credential and the push gate, so keep it in-cluster only.
+  PETRI_GATEWAY_REPO_API_URL: ""
+  # Reviewing model for verdict gates. Point at a different model from the one
+  # writing the code. Unset means verdict gates hold rather than pass.
+  PETRI_REVIEW_BASE_URL: ""
+  PETRI_REVIEW_MODEL: "chatgpt"
+  PETRI_SECURITY_USERNAME: "admin"
 # Secrets for sensitive data.
 # If a key is set in both `env` and `secrets`, the Secret-backed value wins.
 secrets: {}
 # SPRING_DATASOURCE_PASSWORD: "your-password"
 # PETRI_GATEWAY_PASSWORD: "your-gateway-password"
+# PETRI_REVIEW_API_KEY: "your-review-key"
+# Guards the write API, which queues agent work against real repositories.
+# Unset means the API rejects every request rather than opening up.
+# PETRI_SECURITY_API_KEY: "a-long-random-value"
+# PETRI_SECURITY_PASSWORD: "board-login-password"
 livenessProbe:
   enabled: true
   httpGet:

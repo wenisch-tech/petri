@@ -48,4 +48,22 @@ public interface AgentGateway {
 
     /** The agent's last message in a session, or empty if it produced none. */
     String lastMessage(String sessionId);
+
+    /**
+     * Push the branch, having passed the gate.
+     *
+     * <p>Petri never holds the credential and never runs git: this asks the
+     * gateway to do it, and the gateway re-runs its own gate on the rebased
+     * result before it does. A refusal comes back as a failed report rather than
+     * an exception, because it is an answer.
+     */
+    GateReport push(String repository, String branch);
+
+    /**
+     * Open a pull request for the branch and return its URL.
+     *
+     * <p>There is deliberately no merge. Landing the change is a person's
+     * decision, and nothing here should be able to make it.
+     */
+    String openPullRequest(String repository, String branch, String title, String body);
 }
