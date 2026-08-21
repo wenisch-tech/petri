@@ -4,6 +4,9 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -93,25 +96,50 @@ public class BoardApiController {
         Board board = boards.findBySlug(slug).orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no such board"));
 
-        if (!cards.findByBoardOrderByIdAsc(board).isEmpty()) {
-            // Cards point at states. Replacing the pipeline under them would
-            // leave work referring to states that no longer exist.
+        // Cards point at states, so a state a card is sitting in cannot go. That
+        // is the only real constraint: refusing every edit once a board has any
+        // card at all made a pipeline permanently frozen the moment it was used,
+        // which is exactly when you learn it needs another state.
+        Set<String> occupied = cards.findByBoardOrderByIdAsc(board).stream()
+                .map(card -> card.getState().getName())
+                .collect(Collectors.toSet());
+        Set<String> proposed = requested.stream().map(NewState::name).collect(Collectors.toSet());
+
+        List<String> wouldStrand = occupied.stream()
+                .filter(name -> !proposed.contains(name))
+                .sorted()
+                .toList();
+        if (!wouldStrand.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "the board already has cards; states cannot be replaced");
+                    "cards are sitting in " + String.join(", ", wouldStrand)
+                            + "; move them before removing those states");
         }
 
-        List<WorkflowState> existing = states.findByBoardOrderByPositionAsc(board);
-        existing.forEach(state -> {
+        Map<String, WorkflowState> byName = states.findByBoardOrderByPositionAsc(board).stream()
+                .collect(Collectors.toMap(WorkflowState::getName, state -> state));
+
+        // Unlink first: a state cannot be deleted while another still points at
+        // it, and one that survives must not keep a link to one that does not.
+        byName.values().forEach(state -> {
             state.setNextOnPass(null);
             state.setNextOnFail(null);
         });
-        states.saveAll(existing);
-        states.deleteAll(existing);
+        states.saveAll(byName.values());
 
-        // Two passes: create every state, then link them. A single pass cannot
+        List<WorkflowState> removed = byName.entrySet().stream()
+                .filter(entry -> !proposed.contains(entry.getKey()))
+                .map(Map.Entry::getValue)
+                .toList();
+        states.deleteAll(removed);
+        removed.forEach(state -> byName.remove(state.getName()));
+
+        // Two passes: settle every state, then link them. A single pass cannot
         // resolve a forward reference to a state it has not made yet.
+        //
+        // Existing states are updated in place rather than replaced, so the
+        // cards, runs and history pointing at them survive the edit.
         for (NewState request : requested) {
-            WorkflowState state = new WorkflowState();
+            WorkflowState state = byName.getOrDefault(request.name(), new WorkflowState());
             state.setBoard(board);
             state.setName(request.name());
             state.setPosition(request.position());
