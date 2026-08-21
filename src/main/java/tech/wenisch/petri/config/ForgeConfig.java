@@ -42,11 +42,16 @@ public class ForgeConfig {
                 LOG.warn("No client implemented for {}; that board cannot be published", forge);
                 return;
             }
-            LOG.info("Forge {} at {}", forge, instance.getBaseUrl());
+            String agentCredential = instance.credentialForAgent();
+            LOG.info("Forge {} at {}; the agent {} its credential from Petri",
+                    forge, instance.getBaseUrl(),
+                    agentCredential.isBlank() ? "supplies" : "is handed");
             clients.put(forge, new ForgejoClient(
                     client(instance.getBaseUrl() + "/api/v1", instance.getToken(),
-                            properties.getTimeout()),
-                    instance.getBaseUrl()));
+                            properties.getForgeTimeout()),
+                    instance.getBaseUrl(),
+                    instance.getAgentUsername(),
+                    agentCredential));
         });
 
         if (clients.isEmpty()) {

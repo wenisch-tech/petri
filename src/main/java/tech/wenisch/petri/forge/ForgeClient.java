@@ -23,6 +23,16 @@ public interface ForgeClient {
     /** Remove a rejected branch, so a failed attempt leaves nothing behind. */
     void deleteBranch(String repository, String branch);
 
-    /** Clone URL for the agent. Carries no credential; the agent supplies its own. */
+    /** Plain clone URL. Never carries a credential. */
     String cloneUrl(String repository);
+
+    /**
+     * The clone URL to put in front of the agent.
+     *
+     * <p>The same as {@link #cloneUrl} unless the operator switched credential
+     * handover on, in which case it embeds one. Separate from {@code cloneUrl}
+     * on purpose: a method that sometimes returns a secret should say so in its
+     * name, or someone will log it.
+     */
+    String cloneUrlForAgent(String repository);
 }

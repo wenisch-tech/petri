@@ -40,10 +40,20 @@ public class ForgejoClient implements ForgeClient {
 
     private final RestClient client;
     private final String baseUrl;
+    private final String agentUsername;
+    private final String agentCredential;
 
     public ForgejoClient(RestClient client, String baseUrl) {
+        this(client, baseUrl, "petri", "");
+    }
+
+    public ForgejoClient(RestClient client, String baseUrl,
+                         String agentUsername, String agentCredential) {
         this.client = client;
         this.baseUrl = baseUrl;
+        this.agentUsername = agentUsername == null || agentUsername.isBlank()
+                ? "petri" : agentUsername;
+        this.agentCredential = agentCredential == null ? "" : agentCredential;
     }
 
     @Override
@@ -152,6 +162,28 @@ public class ForgejoClient implements ForgeClient {
     @Override
     public String cloneUrl(String repository) {
         return baseUrl + "/" + repository + ".git";
+    }
+
+    @Override
+    public String cloneUrlForAgent(String repository) {
+        if (agentCredential.isBlank()) {
+            return cloneUrl(repository);
+        }
+        // Credentials in the URL are the only channel a plain session API
+        // offers: there is nowhere to put a git credential helper on a machine
+        // Petri does not own. It is why handover is off by default, and why
+        // everything the agent says is redacted before it is stored.
+        int scheme = baseUrl.indexOf("://");
+        if (scheme < 0) {
+            return cloneUrl(repository);
+        }
+        return baseUrl.substring(0, scheme + 3)
+                + encode(agentUsername) + ":" + encode(agentCredential) + "@"
+                + baseUrl.substring(scheme + 3) + "/" + repository + ".git";
+    }
+
+    private String encode(String value) {
+        return java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     private Map<String, Object> get(String path) {

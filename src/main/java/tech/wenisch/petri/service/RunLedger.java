@@ -70,6 +70,7 @@ public class RunLedger {
     }
 
     private final Map<Forge, ForgeClient> forges;
+    private final Redactor redactor;
     private final String workspaceRoot;
     private final int maxConcurrentRuns;
     private final BoardRepository boards;
@@ -78,6 +79,7 @@ public class RunLedger {
     private final AgentRunRepository runs;
 
     public RunLedger(Map<Forge, ForgeClient> forges,
+                     Redactor redactor,
                      @Value("${petri.workspace-root:/workspaces/petri}") String workspaceRoot,
                      @Value("${petri.max-concurrent-runs:1}") int maxConcurrentRuns,
                      BoardRepository boards,
@@ -85,6 +87,7 @@ public class RunLedger {
                      CardRepository cards,
                      AgentRunRepository runs) {
         this.forges = forges;
+        this.redactor = redactor;
         this.workspaceRoot = workspaceRoot;
         this.maxConcurrentRuns = Math.max(1, maxConcurrentRuns);
         this.boards = boards;
@@ -165,9 +168,9 @@ public class RunLedger {
         runs.findById(runId).ifPresent(run -> {
             run.setStatus(RunStatus.FAILED);
             run.setFinishedAt(Instant.now());
-            run.setSummary(reason);
+            run.setSummary(redactor.redact(reason));
             runs.save(run);
-            LOG.warn("Run {} could not be started: {}", runId, reason);
+            LOG.warn("Run {} could not be started: {}", runId, redactor.redact(reason));
         });
     }
 
@@ -188,7 +191,7 @@ public class RunLedger {
                 run.setLastEventAt(lastEventAt);
             }
             if (detail != null) {
-                run.setSummary(detail);
+                run.setSummary(redactor.redact(detail));
             }
             runs.save(run);
         });
@@ -205,8 +208,10 @@ public class RunLedger {
         runs.findById(runId).ifPresent(run -> {
             run.setStatus(status);
             run.setFinishedAt(now);
-            run.setSummary(reason);
-            run.setOutput(output);
+            // Everything the agent said is stored and later rendered on a card,
+            // and an agent that hits a git error quotes the URL it was given.
+            run.setSummary(redactor.redact(reason));
+            run.setOutput(redactor.redact(output));
             runs.save(run);
             LOG.info("Run {} finished: {} ({})", runId, status, reason);
         });
@@ -282,7 +287,7 @@ public class RunLedger {
 
     private String cloneUrl(Card card) {
         ForgeClient forge = forges.get(card.getBoard().getForge());
-        return forge == null ? "" : forge.cloneUrl(card.getBoard().getRepository());
+        return forge == null ? "" : forge.cloneUrlForAgent(card.getBoard().getRepository());
     }
 
     /** The branch owns the session, so a card without one gets a stable name now. */
