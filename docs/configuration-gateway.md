@@ -120,3 +120,40 @@ The contract is written as instructions because no two agent runtimes enforce th
 same way. What actually constrains the agent is the scope of its token and branch
 protection on the forge. See [Architecture](architecture.md) for what happens
 after the diff comes back.
+
+## Bounding the agent itself
+
+Petri's gates read what the agent reports. They are not a sandbox, and they do
+not stop an agent from running a command. That boundary belongs to the runtime.
+
+With [opencode](https://opencode.ai) specifically, the useful shape is a
+permission ruleset that allows the git the contract asks for and denies the git
+it does not:
+
+```json
+{
+  "permission": {
+    "bash": {
+      "git push --force*": "deny",
+      "git push*": "allow",
+      "git*": "allow",
+      "*": "ask"
+    }
+  }
+}
+```
+
+Two things are worth knowing before copying it:
+
+- `--auto` means "auto-approve permissions that are not explicitly denied". It is
+  not a narrower setting than the ruleset; it is what makes the ruleset the only
+  thing standing between the agent and a command.
+- A denied rule is the only reliable half. `"allow"` for `git push*` means the
+  agent may push whenever it decides to - including from the implementing turn,
+  before Petri has read anything. If that matters to you, deny pushing outright
+  and let the pushing state's prompt fail loudly instead of quietly pushing early.
+
+What actually constrains the damage is narrower than any of this: the scope of
+the token the agent holds, and branch protection on the forge's default branch.
+Both are enforced somewhere the agent cannot reach. A permission ruleset is
+policy; branch protection is a boundary.

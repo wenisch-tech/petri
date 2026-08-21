@@ -16,9 +16,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * The gates, in isolation.
  *
  * <p>One theme runs through all of it: a gate that cannot decide must
- * <em>hold</em>. Passing on an unreachable push gate, an unavailable reviewer or
- * an unparsable verdict would let unexamined work reach a pull request on the
- * strength of an error, which is the opposite of what a gate is for.
+ * <em>hold</em>. Passing on an unavailable reviewer or an unparsable verdict
+ * would let unexamined work reach a pull request on the strength of an error,
+ * which is the opposite of what a gate is for.
  */
 class GateTests {
 
