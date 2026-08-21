@@ -96,9 +96,13 @@ Adding a role is a row. Changing which model plans is a row. Neither is a deploy
 
 ### What Petri deliberately does not do
 
-**Petri never touches git, credentials, or the push gate.** Cloning, branching, secret scanning, protected-path checks, rebasing and pushing all stay in the agent gateway, behind an allowlisted API. That code is hardened and has earned its scars; reimplementing it here would re-open every bug it already fixed.
+**Petri never runs git, and shares no filesystem with the agent.** The agent clones, commits and pushes with its own credential, in a workspace Petri names and never opens. Petri sends a prompt, watches the session, reads what landed from the forge's API, and decides.
 
-Petri is a control plane. It decides *what* should happen next and *who* should do it. It does not hold the repository credential, and it cannot push.
+We tried the other arrangement first: a bespoke shim between the two, holding the credential and the checkout. It worked, and nobody else could run it - it tied the orchestrator to one agent runtime, on one machine, with one shared disk. Anything that can run a shell, hold a token and answer four HTTP calls can sit behind the interface Petri actually needs.
+
+**What Petri does own is the order.** The agent commits and reports its diff but does not push. Petri scans that diff for secrets, checks protected paths and branch discipline, asks an independent model for a verdict - and only then asks for the push. Then it reads the branch back from the forge, checks it *again* because what landed may not be what was reported, and opens the pull request itself. Nothing reaches the remote before the secret scan, because once a branch is pushed a credential is in its history whatever anyone decides afterwards.
+
+Petri never merges. Landing a change is a person's decision.
 
 ---
 

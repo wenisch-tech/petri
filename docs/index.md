@@ -32,11 +32,16 @@ Three properties follow from modelling the pipeline explicitly:
 
 ## What Petri does not do
 
-Petri never touches git, credentials, or the push gate. Cloning, branching,
-secret scanning, protected-path checks, rebasing and pushing stay in the agent
-gateway it drives, behind an allowlisted API.
+Petri never runs git and shares no filesystem with the agent. The agent clones,
+commits and pushes with its own credential, in a workspace Petri names and never
+opens.
 
-Petri decides *what* happens next and *who* does it. It cannot push.
+What Petri owns is the order: the agent commits and reports a diff but does not
+push; Petri scans it for secrets, checks protected paths, asks an independent
+model for a verdict, and only then asks for the push. It reads the branch back
+from the forge, checks it again, and opens the pull request itself.
+
+It never merges. Landing a change is a person's decision.
 
 ## Status
 

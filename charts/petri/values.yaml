@@ -87,9 +87,21 @@ env:
   # The gateway lists only busy sessions, so a run is invisible between being
   # created and producing its first output.
   PETRI_GATEWAY_STARTUP_GRACE: "PT2M"
-  # The repository shim is a second service on its own port. It holds the
-  # credential and the push gate, so keep it in-cluster only.
-  PETRI_GATEWAY_REPO_API_URL: ""
+  # Where the agent works. Petri names one directory per card and never opens
+  # it: this path exists on the agent's filesystem, not Petri's.
+  PETRI_WORKSPACE_ROOT: "/workspaces/petri"
+  # How many runs may be open at once. One by default: where model calls
+  # serialise on a single GPU, a second turn waits in silence, and silence is
+  # what the liveness poller treats as a hung turn.
+  PETRI_MAX_CONCURRENT_RUNS: "1"
+  # The forge. Petri's own token reads what landed and opens the pull request;
+  # it never pushes.
+  PETRI_FORGE_FORGEJO_BASE_URL: ""
+  # Optionally hand the agent a credential so it can clone and push by itself.
+  # Off by default: this decides who holds the push right. Prefer giving it its
+  # own token below - that one may push, Petri's need not.
+  PETRI_FORGE_FORGEJO_HAND_TOKEN_TO_AGENT: "false"
+  PETRI_FORGE_FORGEJO_AGENT_USERNAME: "petri"
   # Reviewing model for verdict gates. Point at a different model from the one
   # writing the code. Unset means verdict gates hold rather than pass.
   PETRI_REVIEW_BASE_URL: ""
@@ -101,6 +113,10 @@ secrets: {}
 # SPRING_DATASOURCE_PASSWORD: "your-password"
 # PETRI_GATEWAY_PASSWORD: "your-gateway-password"
 # PETRI_REVIEW_API_KEY: "your-review-key"
+# Petri's own forge token: read, and open a pull request. No push.
+# PETRI_FORGE_FORGEJO_TOKEN: "a-forge-token"
+# Only used when hand-token-to-agent is on. This is the one that may push.
+# PETRI_FORGE_FORGEJO_AGENT_TOKEN: "a-push-token"
 # Guards the write API, which queues agent work against real repositories.
 # Unset means the API rejects every request rather than opening up.
 # PETRI_SECURITY_API_KEY: "a-long-random-value"
