@@ -66,6 +66,11 @@ class RunnerTests {
         public void abort(String sessionId) {
             aborted.add(sessionId);
         }
+
+        @Override
+        public GateReport check(String repository, String branch) {
+            return new GateReport(true, "all checks pass");
+        }
     }
 
     @TestConfiguration

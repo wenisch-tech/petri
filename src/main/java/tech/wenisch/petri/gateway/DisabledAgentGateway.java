@@ -28,4 +28,11 @@ public class DisabledAgentGateway implements AgentGateway {
     public void abort(String sessionId) {
         // Nothing is running.
     }
+
+    @Override
+    public GateReport check(String repository, String branch) {
+        // Refuse rather than report a pass nobody performed: a gate that says
+        // yes without checking is worse than no gate at all.
+        return new GateReport(false, "no agent gateway is configured, so nothing was checked");
+    }
 }

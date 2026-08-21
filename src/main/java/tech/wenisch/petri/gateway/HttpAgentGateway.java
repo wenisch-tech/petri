@@ -11,41 +11,90 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
 
 /**
- * Talks to an opencode-style gateway over HTTP.
+ * Talks to an opencode gateway.
  *
- * <p>Two endpoints matter. A repository shim starts work against a checkout the
- * gateway owns, and the session API reports what that work is doing. Petri never
- * reaches past either into git.
+ * <p>Two services, deliberately kept apart. The <em>session API</em> creates and
+ * observes agent sessions. The <em>repository API</em> is an allowlisted shim
+ * over the gateway's own git tooling: it owns the checkout, the credential and
+ * the push gate, and Petri only ever asks it questions.
+ *
+ * <p>Every path here was checked against a running gateway's OpenAPI document.
+ * An earlier version invented {@code POST /run/async} and {@code POST /check} on
+ * the session port; both answered HTTP 200, because that port serves a
+ * single-page application and returns its HTML shell for unknown paths. The
+ * status code did not distinguish a real endpoint from a catch-all. Only reading
+ * the body did.
  */
 public class HttpAgentGateway implements AgentGateway {
 
     private static final Logger LOG = LoggerFactory.getLogger(HttpAgentGateway.class);
 
-    private final RestClient client;
+    private static final ParameterizedTypeReference<Map<String, Object>> JSON_MAP =
+            new ParameterizedTypeReference<>() {};
 
-    public HttpAgentGateway(RestClient client) {
-        this.client = client;
+    private final RestClient sessions;
+    private final RestClient repository;
+    private final String workspaceTemplate;
+
+    public HttpAgentGateway(RestClient sessions, RestClient repository, String workspaceTemplate) {
+        this.sessions = sessions;
+        this.repository = repository;
+        this.workspaceTemplate = workspaceTemplate;
     }
 
+    /**
+     * Open the checkout, then start a turn in it without waiting for the turn.
+     *
+     * <p>Three calls, because that is what the gateway offers: the repository
+     * shim prepares the branch, a session is created against that directory, and
+     * the prompt is submitted asynchronously. Submitting synchronously would
+     * leave nothing able to answer whether the turn is still alive.
+     */
     @Override
     public String start(StartRequest request) {
-        Map<String, Object> body = Map.of(
-                "repository", request.repository(),
-                "branch", request.branch(),
-                "prompt", request.prompt());
-
-        Map<String, Object> response = client.post()
-                .uri("/run/async")
-                .header(HttpHeaders.CONTENT_TYPE, "application/json")
-                .body(body)
-                .retrieve()
-                .body(new ParameterizedTypeReference<Map<String, Object>>() {});
-
-        Object sessionId = response == null ? null : response.get("sessionId");
-        if (sessionId == null) {
-            throw new GatewayException("gateway accepted the run but returned no session id");
+        Map<String, Object> opened =
+                repoCommand("open", List.of(request.repository(), request.branch()));
+        if (exitCode(opened) != 0) {
+            throw new GatewayException("could not open " + request.repository()
+                    + " on " + request.branch() + ": " + output(opened));
         }
+
+        String directory = workspaceFor(request.repository());
+
+        Map<String, Object> session = sessions.post()
+                .uri(builder -> builder.path("/session").queryParam("directory", directory).build())
+                .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                .body(Map.of())
+                .retrieve()
+                .body(JSON_MAP);
+
+        Object sessionId = session == null ? null : session.get("id");
+        if (sessionId == null) {
+            throw new GatewayException("gateway created no session for " + directory);
+        }
+
+        sessions.post()
+                .uri("/session/{id}/prompt_async", sessionId.toString())
+                .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                .body(Map.of("parts", List.of(Map.of("type", "text", "text", request.prompt()))))
+                .retrieve()
+                .toBodilessEntity();
+
         return sessionId.toString();
+    }
+
+    /**
+     * The gateway lays its workspaces out its own way, so the pattern is
+     * configuration rather than a layout guessed at inside this client.
+     */
+    private String workspaceFor(String repository) {
+        String[] parts = repository.split("/", 2);
+        String owner = parts.length == 2 ? parts[0] : "";
+        String name = parts.length == 2 ? parts[1] : repository;
+        return workspaceTemplate
+                .replace("{repository}", repository)
+                .replace("{owner}", owner)
+                .replace("{name}", name);
     }
 
     @Override
@@ -54,13 +103,13 @@ public class HttpAgentGateway implements AgentGateway {
             return Map.of();
         }
 
-        // One call for every session rather than one per run: the gateway
-        // reports them together, and a poll that scales with the board is a
-        // poll that eventually stops being run often enough.
-        Map<String, Object> response = client.get()
+        // One call covering every session, not one per run: a poll whose cost
+        // grows with the board eventually stops running often enough to be
+        // liveness at all.
+        Map<String, Object> response = sessions.get()
                 .uri("/session/status")
                 .retrieve()
-                .body(new ParameterizedTypeReference<Map<String, Object>>() {});
+                .body(JSON_MAP);
 
         Map<String, SessionSnapshot> snapshots = new HashMap<>();
         for (String id : sessionIds) {
@@ -102,11 +151,53 @@ public class HttpAgentGateway implements AgentGateway {
     @Override
     public void abort(String sessionId) {
         try {
-            client.post().uri("/session/{id}/abort", sessionId).retrieve().toBodilessEntity();
+            sessions.post().uri("/session/{id}/abort", sessionId).retrieve().toBodilessEntity();
         } catch (RuntimeException ex) {
-            // A session that has already finished cannot be aborted, and that is
-            // the common case when a stop races a completion.
+            // A finished session cannot be aborted, and that is the common case
+            // when a stop races a completion.
             LOG.debug("Abort of session {} did not apply: {}", sessionId, ex.toString());
         }
+    }
+
+    @Override
+    public GateReport check(String repository, String branch) {
+        Map<String, Object> response = repoCommand("check", List.of());
+        return new GateReport(exitCode(response) == 0, output(response));
+    }
+
+    /**
+     * Invoke one allowlisted subcommand on the repository shim.
+     *
+     * <p>The shim answers {@code exit_code} and {@code output}. A non-zero exit
+     * is a refusal carrying real output - a failed gate, a bad branch - not a
+     * transport error, so it comes back as data rather than as an exception.
+     */
+    private Map<String, Object> repoCommand(String command, List<String> args) {
+        try {
+            Map<String, Object> response = repository.post()
+                    .uri("/{command}", command)
+                    .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .body(Map.of("args", args))
+                    .retrieve()
+                    .body(JSON_MAP);
+            if (response == null) {
+                throw new GatewayException("repository shim returned no result for " + command);
+            }
+            return response;
+        } catch (GatewayException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            throw new GatewayException("repository shim call '" + command + "' failed", ex);
+        }
+    }
+
+    private int exitCode(Map<String, Object> response) {
+        Object value = response.get("exit_code");
+        return value instanceof Number number ? number.intValue() : 0;
+    }
+
+    private String output(Map<String, Object> response) {
+        Object value = response.get("output");
+        return value == null ? "" : value.toString();
     }
 }

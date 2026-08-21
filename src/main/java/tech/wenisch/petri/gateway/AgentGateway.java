@@ -25,4 +25,14 @@ public interface AgentGateway {
 
     /** Stop a session. Best effort: a session that has already finished is not an error. */
     void abort(String sessionId);
+
+    /**
+     * Run the gateway's push gate against a branch without pushing.
+     *
+     * <p>Petri does not reimplement any of it. Secret scanning across every
+     * commit in the range, protected paths, test detection and re-running the
+     * whole gate after a rebase live on the other side of this call, where they
+     * have been hardened by real failures. Asking is the whole contract.
+     */
+    GateReport check(String repository, String branch);
 }

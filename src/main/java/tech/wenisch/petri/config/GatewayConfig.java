@@ -37,8 +37,18 @@ public class GatewayConfig {
             return new DisabledAgentGateway();
         }
 
-        LOG.info("Agent gateway at {}", properties.baseUrl());
-        return new HttpAgentGateway(client(properties));
+        if (properties.repoApiUrl().isBlank()) {
+            LOG.warn("petri.gateway.repo-api-url is not set; the repository gate and "
+                    + "checkout cannot be reached, so no work can be started");
+            return new DisabledAgentGateway();
+        }
+
+        LOG.info("Agent gateway sessions at {}, repository shim at {}",
+                properties.baseUrl(), properties.repoApiUrl());
+        return new HttpAgentGateway(
+                client(properties, properties.baseUrl()),
+                client(properties, properties.repoApiUrl()),
+                properties.workspaceTemplate());
     }
 
     /**
@@ -51,7 +61,7 @@ public class GatewayConfig {
      * <p>This bounds a single HTTP call and nothing else. How long a <em>run</em>
      * may take is decided by silence, in {@code GatewayProperties.idleTimeout}.
      */
-    private RestClient client(GatewayProperties properties) {
+    private RestClient client(GatewayProperties properties, String baseUrl) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(properties.requestTimeout());
         factory.setReadTimeout(properties.requestTimeout());
@@ -61,7 +71,7 @@ public class GatewayConfig {
                 .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
 
         return RestClient.builder()
-                .baseUrl(properties.baseUrl())
+                .baseUrl(baseUrl)
                 .requestFactory(factory)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, basic)
                 .build();

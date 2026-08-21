@@ -30,12 +30,14 @@ class GatewayDefaultsTests {
         // A record with a primitive boolean would bind an absent property to
         // false and disable the runner silently. Boolean plus this default keeps
         // the code and application.properties saying the same thing.
-        GatewayProperties defaults =
-                new GatewayProperties(null, null, null, null, null, null, null);
+        GatewayProperties defaults = new GatewayProperties(
+                null, null, null, null, null, null, null, null, null);
 
         assertThat(defaults.enabled()).isTrue();
         assertThat(defaults.baseUrl()).isEmpty();
         assertThat(defaults.username()).isEqualTo("petri");
+        // The gateway's own layout, defaulted but overridable.
+        assertThat(defaults.workspaceTemplate()).contains("{owner}").contains("{name}");
     }
 
     @Test
