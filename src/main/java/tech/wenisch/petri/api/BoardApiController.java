@@ -69,6 +69,14 @@ public class BoardApiController {
     public record Created(Long id, String url) {
     }
 
+    public record UpdateBoard(
+            @NotBlank String name,
+            @NotNull Forge forge,
+            @NotBlank String repository,
+            String defaultBranch,
+            Boolean enabled) {
+    }
+
     @PostMapping("/boards")
     ResponseEntity<Created> createBoard(@Valid @RequestBody NewBoard request) {
         boards.findBySlug(request.slug()).ifPresent(existing -> {
@@ -86,6 +94,34 @@ public class BoardApiController {
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(new Created(board.getId(), "/boards/" + board.getSlug()));
+    }
+
+    /**
+     * Update a board's own settings - name, forge, repository, default branch,
+     * whether the runner may pick up work here at all.
+     *
+     * <p>The slug is not among them. It is the board's URL and its identity to
+     * anything that has bookmarked or scripted against {@code /boards/{slug}};
+     * renaming it out from under those references is a bigger decision than
+     * this endpoint should make silently.
+     */
+    @PutMapping("/boards/{slug}")
+    ResponseEntity<Void> updateBoard(@PathVariable String slug,
+                                     @Valid @RequestBody UpdateBoard request) {
+        Board board = boards.findBySlug(slug).orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no such board"));
+
+        board.setName(request.name());
+        board.setForge(request.forge());
+        board.setRepository(request.repository());
+        board.setDefaultBranch(request.defaultBranch() == null || request.defaultBranch().isBlank()
+                ? "main" : request.defaultBranch());
+        if (request.enabled() != null) {
+            board.setEnabled(request.enabled());
+        }
+        boards.save(board);
+
+        return ResponseEntity.ok().build();
     }
 
     /**

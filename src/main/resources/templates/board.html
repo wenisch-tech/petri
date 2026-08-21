@@ -12,6 +12,9 @@
         <a class="btn btn-sm btn-outline-secondary me-2" th:href="@{/boards/{slug}/pipeline(slug=${board.slug})}">
             <i class="bi bi-diagram-3 me-1"></i>Pipeline
         </a>
+        <a class="btn btn-sm btn-outline-secondary me-2" th:href="@{/boards/{slug}/settings(slug=${board.slug})}">
+            <i class="bi bi-gear me-1"></i>Settings
+        </a>
         <button class="btn btn-sm btn-primary" type="button"
                 data-bs-toggle="collapse" data-bs-target="#add-card">
             <i class="bi bi-plus-lg me-1"></i>Add card
@@ -43,6 +46,10 @@
                 <button class="btn btn-sm btn-primary" type="submit">Add to the first state</button>
             </div>
         </form>
+    </div>
+
+    <div class="alert alert-success py-2 small" th:if="${saved != null}">
+        Settings saved.
     </div>
 
     <div class="alert alert-warning py-2 small" th:if="${param.error != null}">
