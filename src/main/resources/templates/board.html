@@ -9,6 +9,9 @@
         <span class="badge text-bg-light border ms-2" th:text="${board.forge}">FORGEJO</span>
         <span class="text-secondary small ms-auto me-3"
               th:text="${board.cardCount()} + ' cards'">0 cards</span>
+        <a class="btn btn-sm btn-outline-secondary me-2" th:href="@{/boards/{slug}/pipeline(slug=${board.slug})}">
+            <i class="bi bi-diagram-3 me-1"></i>Pipeline
+        </a>
         <button class="btn btn-sm btn-primary" type="button"
                 data-bs-toggle="collapse" data-bs-target="#add-card">
             <i class="bi bi-plus-lg me-1"></i>Add card

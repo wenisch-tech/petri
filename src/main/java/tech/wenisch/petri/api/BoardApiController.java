@@ -4,15 +4,13 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import tech.wenisch.petri.entity.*;
 import tech.wenisch.petri.repository.*;
+import tech.wenisch.petri.service.PipelineService;
 
 /**
  * The write side: define a pipeline, then put work into it.
@@ -27,13 +25,16 @@ public class BoardApiController {
     private final BoardRepository boards;
     private final WorkflowStateRepository states;
     private final CardRepository cards;
+    private final PipelineService pipelines;
 
     public BoardApiController(BoardRepository boards,
                               WorkflowStateRepository states,
-                              CardRepository cards) {
+                              CardRepository cards,
+                              PipelineService pipelines) {
         this.boards = boards;
         this.states = states;
         this.cards = cards;
+        this.pipelines = pipelines;
     }
 
     public record NewBoard(
@@ -55,6 +56,11 @@ public class BoardApiController {
             Integer maxAttempts,
             Boolean terminal,
             Boolean publish) {
+
+        PipelineService.StateDefinition toDefinition() {
+            return new PipelineService.StateDefinition(name, position, gate, modelAlias,
+                    promptTemplate, nextOnPass, nextOnFail, maxAttempts, terminal, publish);
+        }
     }
 
     public record NewCard(@NotBlank String title, String description, String state) {
@@ -85,10 +91,9 @@ public class BoardApiController {
     /**
      * Replace a board's states in one call.
      *
-     * <p>Whole-pipeline rather than one state at a time, because the states
-     * reference each other: adding them individually means a window in which
-     * {@code nextOnPass} points at something that does not exist yet, and a
-     * runner that reads it in that window sends a card nowhere.
+     * <p>The rule that matters - a state a card is sitting in cannot go - and the
+     * unlink-delete-link dance that applies it both live in {@link PipelineService},
+     * shared with the board editor so the two front doors cannot drift apart.
      */
     @PutMapping("/boards/{slug}/states")
     ResponseEntity<List<String>> defineStates(@PathVariable String slug,
@@ -96,73 +101,15 @@ public class BoardApiController {
         Board board = boards.findBySlug(slug).orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no such board"));
 
-        // Cards point at states, so a state a card is sitting in cannot go. That
-        // is the only real constraint: refusing every edit once a board has any
-        // card at all made a pipeline permanently frozen the moment it was used,
-        // which is exactly when you learn it needs another state.
-        Set<String> occupied = cards.findByBoardOrderByIdAsc(board).stream()
-                .map(card -> card.getState().getName())
-                .collect(Collectors.toSet());
-        Set<String> proposed = requested.stream().map(NewState::name).collect(Collectors.toSet());
-
-        List<String> wouldStrand = occupied.stream()
-                .filter(name -> !proposed.contains(name))
-                .sorted()
-                .toList();
-        if (!wouldStrand.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "cards are sitting in " + String.join(", ", wouldStrand)
-                            + "; move them before removing those states");
+        try {
+            List<String> result = pipelines.replace(board,
+                    requested.stream().map(NewState::toDefinition).toList());
+            return ResponseEntity.ok(result);
+        } catch (PipelineService.PipelineException ex) {
+            HttpStatus status = ex.kind() == PipelineService.PipelineException.Kind.STRANDED_CARDS
+                    ? HttpStatus.CONFLICT : HttpStatus.BAD_REQUEST;
+            throw new ResponseStatusException(status, ex.getMessage());
         }
-
-        Map<String, WorkflowState> byName = states.findByBoardOrderByPositionAsc(board).stream()
-                .collect(Collectors.toMap(WorkflowState::getName, state -> state));
-
-        // Unlink first: a state cannot be deleted while another still points at
-        // it, and one that survives must not keep a link to one that does not.
-        byName.values().forEach(state -> {
-            state.setNextOnPass(null);
-            state.setNextOnFail(null);
-        });
-        states.saveAll(byName.values());
-
-        List<WorkflowState> removed = byName.entrySet().stream()
-                .filter(entry -> !proposed.contains(entry.getKey()))
-                .map(Map.Entry::getValue)
-                .toList();
-        states.deleteAll(removed);
-        removed.forEach(state -> byName.remove(state.getName()));
-
-        // Two passes: settle every state, then link them. A single pass cannot
-        // resolve a forward reference to a state it has not made yet.
-        //
-        // Existing states are updated in place rather than replaced, so the
-        // cards, runs and history pointing at them survive the edit.
-        for (NewState request : requested) {
-            WorkflowState state = byName.getOrDefault(request.name(), new WorkflowState());
-            state.setBoard(board);
-            state.setName(request.name());
-            state.setPosition(request.position());
-            state.setGate(request.gate());
-            state.setModelAlias(blankToNull(request.modelAlias()));
-            state.setPromptTemplate(blankToNull(request.promptTemplate()));
-            state.setTerminal(Boolean.TRUE.equals(request.terminal()));
-            state.setPublish(Boolean.TRUE.equals(request.publish()));
-            if (request.maxAttempts() != null) {
-                state.setMaxAttempts(request.maxAttempts());
-            }
-            states.save(state);
-        }
-
-        for (NewState request : requested) {
-            WorkflowState state = require(board, request.name());
-            state.setNextOnPass(resolve(board, request.nextOnPass()));
-            state.setNextOnFail(resolve(board, request.nextOnFail()));
-            states.save(state);
-        }
-
-        return ResponseEntity.ok(states.findByBoardOrderByPositionAsc(board).stream()
-                .map(WorkflowState::getName).toList());
     }
 
     @PostMapping("/boards/{slug}/cards")
@@ -195,13 +142,5 @@ public class BoardApiController {
     private WorkflowState require(Board board, String name) {
         return states.findByBoardAndName(board, name).orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "no such state: " + name));
-    }
-
-    private WorkflowState resolve(Board board, String name) {
-        return name == null || name.isBlank() ? null : require(board, name);
-    }
-
-    private String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
     }
 }

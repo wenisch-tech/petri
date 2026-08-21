@@ -13,6 +13,7 @@ import tech.wenisch.petri.dto.CardDetailView;
 import tech.wenisch.petri.dto.CardSummary;
 import tech.wenisch.petri.dto.ColumnView;
 import tech.wenisch.petri.dto.RunView;
+import tech.wenisch.petri.dto.StateView;
 import tech.wenisch.petri.dto.TransitionView;
 import tech.wenisch.petri.entity.Board;
 import tech.wenisch.petri.entity.Card;
@@ -87,6 +88,30 @@ public class BoardQueryService {
                 board.getRepository(),
                 board.getForge().name(),
                 columns);
+    }
+
+    /** The pipeline as the editor needs it: every field, in position order. */
+    public Optional<List<StateView>> pipeline(String slug) {
+        return boards.findBySlug(slug).map(board -> {
+            Map<Long, Integer> counts = new HashMap<>();
+            for (Card card : cards.findByBoardOrderByIdAsc(board)) {
+                counts.merge(card.getState().getId(), 1, Integer::sum);
+            }
+            return states.findByBoardOrderByPositionAsc(board).stream()
+                    .map(state -> new StateView(
+                            state.getName(),
+                            state.getPosition(),
+                            state.getGate(),
+                            state.getModelAlias(),
+                            state.getPromptTemplate(),
+                            state.getNextOnPass() == null ? null : state.getNextOnPass().getName(),
+                            state.getNextOnFail() == null ? null : state.getNextOnFail().getName(),
+                            state.getMaxAttempts(),
+                            state.isTerminal(),
+                            state.isPublish(),
+                            counts.getOrDefault(state.getId(), 0)))
+                    .toList();
+        });
     }
 
     public Optional<CardDetailView> card(Long id) {

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page(${board.name} + ' · Pipeline', ~{::content})}">
+<body>
+<th:block th:fragment="content">
+    <div class="d-flex align-items-baseline mb-3">
+        <h1 class="h4 fw-medium mb-0">Pipeline</h1>
+        <span class="text-secondary small ms-3" th:text="${board.name}">Board</span>
+        <a class="btn btn-sm btn-outline-secondary ms-auto" th:href="@{/boards/{slug}(slug=${board.slug})}">
+            <i class="bi bi-arrow-left me-1"></i>Back to board
+        </a>
+    </div>
+
+    <div class="alert alert-warning py-2 small" th:if="${error != null}" th:text="${error}">error</div>
+
+    <p class="text-secondary small">
+        States run left to right. Drag a card by its handle to reorder; the order
+        here is the order cards move through. <strong>On pass</strong> and
+        <strong>on fail</strong> point at another state by name - leave either
+        blank to stop the card there.
+    </p>
+
+    <form id="pipeline-form" method="post" th:action="@{/boards/{slug}/pipeline(slug=${board.slug})}">
+        <input type="hidden" name="pipelineJson" id="pipeline-json">
+    </form>
+
+    <div class="petri-board" id="pipeline-editor">
+        <div class="petri-pipeline-card" draggable="true"
+             th:each="state : ${states}" th:data-card-count="${state.cardCount()}">
+            <div class="d-flex align-items-center mb-2 petri-drag-handle">
+                <i class="bi bi-grip-vertical text-secondary me-2"></i>
+                <input type="text" class="form-control form-control-sm fw-medium petri-name"
+                       th:value="${state.name()}" placeholder="state name" required>
+                <button type="button" class="btn btn-sm btn-outline-danger ms-2 petri-remove"
+                        th:title="${state.cardCount() > 0
+                                    ? state.cardCount() + ' card(s) are here; removing is refused until they move'
+                                    : 'Remove this state'}">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+
+            <span class="badge text-bg-light border mb-2" th:if="${state.cardCount() > 0}"
+                  th:text="${state.cardCount()} + ' card(s) here'">0 cards</span>
+
+            <div class="mb-2">
+                <label class="form-label small fw-medium mb-0">Gate</label>
+                <select class="form-select form-select-sm petri-gate-select">
+                    <option th:each="g : ${gates}" th:value="${g}" th:text="${g}"
+                            th:selected="${g == state.gate()}">GATE</option>
+                </select>
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label small fw-medium mb-0">Model alias</label>
+                <input type="text" class="form-control form-control-sm petri-model"
+                       th:value="${state.modelAlias()}" placeholder="empty = manual, no auto-run">
+            </div>
+
+            <div class="row g-2 mb-2">
+                <div class="col">
+                    <label class="form-label small fw-medium mb-0">On pass</label>
+                    <select class="form-select form-select-sm petri-next-pass"
+                            th:data-selected="${state.nextOnPass()}"></select>
+                </div>
+                <div class="col">
+                    <label class="form-label small fw-medium mb-0">On fail</label>
+                    <select class="form-select form-select-sm petri-next-fail"
+                            th:data-selected="${state.nextOnFail()}"></select>
+                </div>
+            </div>
+
+            <div class="row g-2 mb-2">
+                <div class="col">
+                    <label class="form-label small fw-medium mb-0">Max attempts</label>
+                    <input type="number" class="form-control form-control-sm petri-attempts"
+                           th:value="${state.maxAttempts()}" min="1">
+                </div>
+                <div class="col d-flex flex-column justify-content-end">
+                    <div class="form-check form-check-sm">
+                        <input class="form-check-input petri-terminal" type="checkbox"
+                               th:checked="${state.terminal()}">
+                        <label class="form-check-label small">Terminal</label>
+                    </div>
+                    <div class="form-check form-check-sm">
+                        <input class="form-check-input petri-publish" type="checkbox"
+                               th:checked="${state.publish()}">
+                        <label class="form-check-label small">Publish</label>
+                    </div>
+                </div>
+            </div>
+
+            <details>
+                <summary class="small text-secondary">Prompt template</summary>
+                <textarea class="form-control form-control-sm petri-prompt mt-1" rows="6"
+                          placeholder="Empty uses the default for this gate."
+                          th:text="${state.promptTemplate()}"></textarea>
+            </details>
+        </div>
+    </div>
+
+    <div class="d-flex mt-3">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="pipeline-add">
+            <i class="bi bi-plus-lg me-1"></i>Add state
+        </button>
+        <button type="button" class="btn btn-sm btn-primary ms-auto" id="pipeline-save">
+            <i class="bi bi-check-lg me-1"></i>Save pipeline
+        </button>
+    </div>
+
+    <!--
+    Vanilla JS on purpose: no separate frontend build is a listed feature, and
+    this editor's whole job - reorder, add, remove, keep the on-pass/on-fail
+    dropdowns in sync with whatever names currently exist in the DOM - does not
+    need more than that. The pipeline is serialized from the DOM at save time
+    rather than kept in a parallel JS model, so the DOM is always the single
+    source of truth and there is nothing to fall out of sync.
+    -->
+    <script th:inline="javascript">
+        (function () {
+            const editor = document.getElementById('pipeline-editor');
+
+            function cards() {
+                return Array.from(editor.querySelectorAll('.petri-pipeline-card'));
+            }
+
+            function names() {
+                return cards().map(c => c.querySelector('.petri-name').value.trim()).filter(n => n);
+            }
+
+            /** Rebuild every on-pass/on-fail select so it only offers states that still exist. */
+            function refreshTargets() {
+                const known = names();
+                cards().forEach(card => {
+                    ['.petri-next-pass', '.petri-next-fail'].forEach(sel => {
+                        const select = card.querySelector(sel);
+                        const current = select.dataset.selected !== undefined
+                            ? select.dataset.selected : select.value;
+                        select.innerHTML = '<option value="">(stop here)</option>'
+                            + known.map(n => '<option value="' + escapeHtml(n) + '">' + escapeHtml(n) + '</option>').join('');
+                        if (known.includes(current)) {
+                            select.value = current;
+                        }
+                        delete select.dataset.selected;
+                    });
+                });
+            }
+
+            function escapeHtml(s) {
+                const div = document.createElement('div');
+                div.textContent = s;
+                return div.innerHTML;
+            }
+
+            function newCardTemplate() {
+                const first = cards()[0];
+                const clone = first ? first.cloneNode(true) : null;
+                const card = clone || document.createElement('div');
+                card.className = 'petri-pipeline-card';
+                card.draggable = true;
+                card.removeAttribute('data-card-count');
+                card.querySelector('.petri-name').value = '';
+                card.querySelector('.petri-model').value = '';
+                card.querySelector('.petri-attempts').value = '3';
+                card.querySelector('.petri-terminal').checked = false;
+                card.querySelector('.petri-publish').checked = false;
+                card.querySelector('.petri-prompt').value = '';
+                card.querySelector('.petri-gate-select').value = 'NONE';
+                const badge = card.querySelector('.badge');
+                if (badge) badge.remove();
+                const removeBtn = card.querySelector('.petri-remove');
+                removeBtn.title = 'Remove this state';
+                return card;
+            }
+
+            document.getElementById('pipeline-add').addEventListener('click', () => {
+                editor.appendChild(newCardTemplate());
+                refreshTargets();
+                wireCard(editor.lastElementChild);
+            });
+
+            function wireCard(card) {
+                card.querySelector('.petri-name').addEventListener('input', refreshTargets);
+                card.querySelector('.petri-remove').addEventListener('click', () => {
+                    const count = Number(card.dataset.cardCount || 0);
+                    if (count > 0) {
+                        alert(count + ' card(s) are sitting in this state. Move them before removing it.');
+                        return;
+                    }
+                    card.remove();
+                    refreshTargets();
+                });
+
+                // Native HTML5 drag-and-drop, swapping DOM position on drop - the
+                // DOM order is read directly at save time, so nothing else needs
+                // to track position.
+                card.addEventListener('dragstart', () => card.classList.add('petri-dragging'));
+                card.addEventListener('dragend', () => card.classList.remove('petri-dragging'));
+            }
+
+            editor.addEventListener('dragover', e => {
+                e.preventDefault();
+                const dragging = editor.querySelector('.petri-dragging');
+                if (!dragging) return;
+                const after = cards().find(c => {
+                    if (c === dragging) return false;
+                    const box = c.getBoundingClientRect();
+                    return e.clientX < box.left + box.width / 2;
+                });
+                if (after) {
+                    editor.insertBefore(dragging, after);
+                } else {
+                    editor.appendChild(dragging);
+                }
+            });
+
+            document.getElementById('pipeline-save').addEventListener('click', () => {
+                const payload = cards().map((card, index) => ({
+                    name: card.querySelector('.petri-name').value.trim(),
+                    position: index,
+                    gate: card.querySelector('.petri-gate-select').value,
+                    modelAlias: card.querySelector('.petri-model').value.trim() || null,
+                    promptTemplate: card.querySelector('.petri-prompt').value.trim() || null,
+                    nextOnPass: card.querySelector('.petri-next-pass').value || null,
+                    nextOnFail: card.querySelector('.petri-next-fail').value || null,
+                    maxAttempts: Number(card.querySelector('.petri-attempts').value) || null,
+                    terminal: card.querySelector('.petri-terminal').checked,
+                    publish: card.querySelector('.petri-publish').checked
+                }));
+
+                if (payload.some(s => !s.name)) {
+                    alert('Every state needs a name.');
+                    return;
+                }
+
+                document.getElementById('pipeline-json').value = JSON.stringify(payload);
+                document.getElementById('pipeline-form').submit();
+            });
+
+            cards().forEach(wireCard);
+            refreshTargets();
+        })();
+    </script>
+</th:block>
+</body>
+</html>
