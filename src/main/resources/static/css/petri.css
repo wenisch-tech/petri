@@ -24,3 +24,15 @@
 .petri-pre {
     white-space: pre-wrap;
 }
+
+/* Agent output is prose with code in it: wrap rather than scroll sideways, and
+   cap the height so one long transcript cannot bury the rest of the card. */
+.petri-output {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 24rem;
+    overflow-y: auto;
+    background: var(--bs-tertiary-bg);
+    padding: .75rem;
+    border-radius: .375rem;
+}

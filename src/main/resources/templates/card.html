@@ -78,22 +78,31 @@
                     <p class="text-secondary small mb-0" th:if="${card.runs.isEmpty()}">
                         Nothing has run yet.
                     </p>
-                    <table class="table table-sm align-middle mb-0 small"
-                           th:unless="${card.runs.isEmpty()}">
-                        <thead class="text-secondary">
-                        <tr><th>#</th><th>Status</th><th>Session</th><th>Last event</th></tr>
-                        </thead>
-                        <tbody>
-                        <tr th:each="r : ${card.runs}">
-                            <td th:text="${r.attempt}">1</td>
-                            <td th:text="${r.status}">STATUS</td>
-                            <td class="font-monospace text-truncate"
-                                th:text="${r.sessionId} ?: '-'">-</td>
-                            <td class="text-secondary text-nowrap"
-                                th:text="${r.lastEventAt} ?: '-'">-</td>
-                        </tr>
-                        </tbody>
-                    </table>
+                    <div th:each="r : ${card.runs}" class="border-top pt-2 mt-2">
+                        <div class="d-flex align-items-center gap-2 small">
+                            <span class="badge text-bg-light border"
+                                  th:text="'attempt ' + ${r.attempt}">attempt 1</span>
+                            <span class="badge"
+                                  th:classappend="${r.status.name() == 'RUNNING'}
+                                      ? 'text-bg-primary' : 'text-bg-light border'"
+                                  th:text="${r.status}">STATUS</span>
+                            <span class="text-secondary petri-gate ms-auto font-monospace text-truncate"
+                                  th:text="${r.sessionId} ?: '-'">-</span>
+                        </div>
+
+                        <div class="petri-gate text-secondary mt-1"
+                             th:if="${r.summary != null}"
+                             th:text="${r.summary}">why it ended</div>
+
+                        <!-- What the agent actually said. Stored when the run
+                             ends and shown here, because a status explains the
+                             outcome while only this explains the reasoning. -->
+                        <details class="mt-2" th:if="${r.output != null and !r.output.isBlank()}">
+                            <summary class="small text-secondary">Agent output</summary>
+                            <pre class="small petri-output mt-2 mb-0"
+                                 th:text="${r.output}">...</pre>
+                        </details>
+                    </div>
                 </div>
             </div>
         </div>

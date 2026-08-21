@@ -89,6 +89,8 @@ class CardPageRenderTests {
         run.setStatus(RunStatus.RUNNING);
         run.setStartedAt(Instant.now().minusSeconds(600));
         run.setLastEventAt(Instant.now().minusSeconds(30));
+        run.setSummary("session went idle");
+        run.setOutput("Changed RunnerService to bound the turn by silence.");
         runs.save(run);
 
         // A transition with a from-state is what actually broke: reaching
@@ -123,7 +125,11 @@ class CardPageRenderTests {
                 .andExpect(content().string(containsString("planner")))
                 .andExpect(content().string(containsString("implement")))
                 .andExpect(content().string(containsString("plan accepted")))
-                .andExpect(content().string(containsString("ses_render000000001")));
+                .andExpect(content().string(containsString("ses_render000000001")))
+                // The agent's own words, and Petri's account of the ending, are
+                // different things and both belong on the card.
+                .andExpect(content().string(containsString("bound the turn by silence")))
+                .andExpect(content().string(containsString("session went idle")));
     }
 
     @Test
