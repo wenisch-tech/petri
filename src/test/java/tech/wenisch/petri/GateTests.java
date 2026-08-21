@@ -45,6 +45,29 @@ class GateTests {
         return run;
     }
 
+    /** A run whose reported output carries a diff in the agreed fenced block. */
+    private AgentRun withDiff(String patch) {
+        return succeeded("""
+                Changed one file.
+
+                ```diff
+                %s
+                ```
+                """.formatted(patch));
+    }
+
+    private static final String CLEAN_PATCH = """
+            diff --git a/src/Main.java b/src/Main.java
+            --- a/src/Main.java
+            +++ b/src/Main.java
+            +int answer = 42;
+            """;
+
+    private RepositoryGate repositoryGate() {
+        return new RepositoryGate(new ChangeInspector(
+                java.util.List.of(".github/**", "Dockerfile", "**/Dockerfile"), "petri/"));
+    }
+
     /** Answers exactly what a test sets, and records nothing else. */
     static class StubGateway implements AgentGateway {
         GateReport report = new GateReport(true, "all checks pass");
@@ -80,42 +103,44 @@ class GateTests {
     // ---------------------------------------------------------------- repository
 
     @Test
-    void repositoryGatePassesWhenThePushGatePasses() {
-        StubGateway gateway = new StubGateway();
-        GateOutcome outcome = new RepositoryGate(gateway).evaluate(card("petri/1-x"), succeeded("done"));
+    void repositoryGatePassesACleanReportedDiff() {
+        GateOutcome outcome = repositoryGate()
+                .evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.PASS);
-        assertThat(outcome.reason()).contains("all checks pass");
+        assertThat(outcome.reason()).contains("changed files");
     }
 
     @Test
-    void repositoryGateFailsAndKeepsTheGatesOwnWords() {
-        StubGateway gateway = new StubGateway();
-        gateway.report = new GateReport(false,
-                "push would be refused:\n  - nothing committed against origin/main yet");
+    void repositoryGateRefusesACredentialBeforeItIsPushed() {
+        String leak = """
+                diff --git a/app.properties b/app.properties
+                --- a/app.properties
+                +++ b/app.properties
+                +api_key = "a-real-looking-secret"
+                """;
 
-        GateOutcome outcome = new RepositoryGate(gateway).evaluate(card("petri/1-x"), succeeded("done"));
+        GateOutcome outcome = repositoryGate().evaluate(card("petri/1-x"), withDiff(leak));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.FAIL);
-        // Verbatim, because the gate's reason is what a person reads on the card
-        // when working out what went wrong.
-        assertThat(outcome.reason()).contains("nothing committed against origin/main");
+        assertThat(outcome.reason()).contains("possible credential");
+        // And it must not repeat the secret while refusing it: this reason
+        // reaches a card, the logs and a pull request body.
+        assertThat(outcome.reason()).doesNotContain("a-real-looking-secret");
     }
 
     @Test
-    void anUnreachablePushGateHoldsRatherThanPasses() {
-        StubGateway gateway = new StubGateway();
-        gateway.failWith = new GatewayException("connection refused");
+    void repositoryGateRefusesWhenTheAgentReportedNoDiff() {
+        GateOutcome outcome = repositoryGate()
+                .evaluate(card("petri/1-x"), succeeded("I had a look around."));
 
-        GateOutcome outcome = new RepositoryGate(gateway).evaluate(card("petri/1-x"), succeeded("done"));
-
-        assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.HOLD);
-        assertThat(outcome.reason()).contains("unreachable");
+        assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.FAIL);
+        assertThat(outcome.reason()).contains("no diff");
     }
 
     @Test
     void aCardWithoutABranchHasNothingToCheck() {
-        GateOutcome outcome = new RepositoryGate(new StubGateway()).evaluate(card(null), succeeded("done"));
+        GateOutcome outcome = repositoryGate().evaluate(card(null), withDiff(CLEAN_PATCH));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.FAIL);
         assertThat(outcome.reason()).contains("no branch");
@@ -181,14 +206,14 @@ class GateTests {
     // -------------------------------------------------------------- llm verdict
 
     private LlmVerdictGate verdictGate(StubGateway gateway, ReviewModel reviewer) {
-        return new LlmVerdictGate(reviewer, gateway);
+        return new LlmVerdictGate(reviewer);
     }
 
     @Test
     void verdictGatePassesOnApproval() {
         GateOutcome outcome = verdictGate(new StubGateway(),
                 (system, prompt) -> "VERDICT: APPROVED\n\nSmall and does what was asked.")
-                .evaluate(card("petri/1-x"), succeeded("done"));
+                .evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.PASS);
     }
@@ -197,7 +222,7 @@ class GateTests {
     void verdictGateFailsOnRejection() {
         GateOutcome outcome = verdictGate(new StubGateway(),
                 (system, prompt) -> "VERDICT: REJECTED\n\nDrops the null check.")
-                .evaluate(card("petri/1-x"), succeeded("done"));
+                .evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.FAIL);
         assertThat(outcome.reason()).contains("Drops the null check");
@@ -211,7 +236,7 @@ class GateTests {
         GateOutcome outcome = verdictGate(new StubGateway(),
                 (system, prompt) -> "This looks risky at first glance.\n"
                         + "On reflection, VERDICT: APPROVED")
-                .evaluate(card("petri/1-x"), succeeded("done"));
+                .evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.HOLD);
         assertThat(outcome.reason()).contains("did not return a verdict");
@@ -221,19 +246,16 @@ class GateTests {
     void anUnavailableReviewerHoldsRatherThanPasses() {
         GateOutcome outcome = verdictGate(new StubGateway(), (system, prompt) -> {
             throw new ReviewException("model unreachable");
-        }).evaluate(card("petri/1-x"), succeeded("done"));
+        }).evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.HOLD);
         assertThat(outcome.reason()).contains("reviewer unavailable");
     }
 
     @Test
-    void thereIsNothingToReviewWhenTheDiffIsEmpty() {
-        StubGateway gateway = new StubGateway();
-        gateway.diff = "";
-
-        GateOutcome outcome = verdictGate(gateway, (system, prompt) -> "VERDICT: APPROVED")
-                .evaluate(card("petri/1-x"), succeeded("done"));
+    void thereIsNothingToReviewWhenTheAgentReportedNoDiff() {
+        GateOutcome outcome = verdictGate(new StubGateway(), (system, prompt) -> "VERDICT: APPROVED")
+                .evaluate(card("petri/1-x"), succeeded("I looked but changed nothing."));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.FAIL);
         assertThat(outcome.reason()).contains("no change to review");
@@ -241,18 +263,16 @@ class GateTests {
 
     @Test
     void theReviewerSeesTheTaskTheReportAndTheDiff() {
-        StubGateway gateway = new StubGateway();
-        gateway.diff = "diff --git a/RunnerService.java b/RunnerService.java";
         StringBuilder seen = new StringBuilder();
 
-        verdictGate(gateway, (system, prompt) -> {
+        verdictGate(new StubGateway(), (system, prompt) -> {
             seen.append(prompt);
             return "VERDICT: APPROVED";
-        }).evaluate(card("petri/1-x"), succeeded("changed the bound to silence"));
+        }).evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
         assertThat(seen.toString())
                 .contains("Bound the turn by silence")
-                .contains("changed the bound to silence")
+                .contains("Changed one file.")
                 .contains("diff --git");
     }
 
@@ -273,7 +293,7 @@ class GateTests {
         AgentRun failed = new AgentRun();
         failed.setStatus(RunStatus.ABORTED);
 
-        assertThat(new RepositoryGate(new StubGateway()).evaluate(card("petri/1-x"), failed).decision())
+        assertThat(repositoryGate().evaluate(card("petri/1-x"), failed).decision())
                 .isEqualTo(GateOutcome.Decision.FAIL);
         assertThat(new PlanShapeGate().evaluate(card("petri/1-x"), failed).decision())
                 .isEqualTo(GateOutcome.Decision.FAIL);

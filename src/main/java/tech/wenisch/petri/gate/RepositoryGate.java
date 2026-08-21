@@ -7,30 +7,29 @@ import tech.wenisch.petri.entity.AgentRun;
 import tech.wenisch.petri.entity.Card;
 import tech.wenisch.petri.entity.GateType;
 import tech.wenisch.petri.entity.RunStatus;
-import tech.wenisch.petri.gateway.AgentGateway;
-import tech.wenisch.petri.gateway.GateReport;
-import tech.wenisch.petri.gateway.GatewayException;
+import tech.wenisch.petri.forge.BranchChange;
 
 /**
- * Asks the gateway to run its own push gate.
+ * Inspects the change <em>before</em> it is pushed.
  *
- * <p>Petri reimplements none of it. Secret scanning over every commit in the
- * range rather than a squashed diff, protected paths, test detection, and
- * re-running the whole gate after a rebase all live on the other side of this
- * call, where they were hardened by real failures. Duplicating them here would
- * mean a second copy to keep in step, and the copy that drifts is the one that
- * lets something through.
+ * <p>The agent commits locally and reports its diff; this reads that diff and
+ * decides whether a push may happen at all. Running the check first is what
+ * keeps a credential off the remote - once a branch is pushed, a secret is in
+ * the forge's history whatever anyone decides afterwards.
+ *
+ * <p>The diff is agent-reported, so this cannot be the only check. The same
+ * inspection runs again on what actually landed, before a pull request is
+ * opened, which catches an agent whose report did not match its commits.
  */
 @Component
 public class RepositoryGate implements Gate {
 
     private static final Logger LOG = LoggerFactory.getLogger(RepositoryGate.class);
-    private static final int MAX_REASON = 2000;
 
-    private final AgentGateway gateway;
+    private final ChangeInspector inspector;
 
-    public RepositoryGate(AgentGateway gateway) {
-        this.gateway = gateway;
+    public RepositoryGate(ChangeInspector inspector) {
+        this.inspector = inspector;
     }
 
     @Override
@@ -40,34 +39,30 @@ public class RepositoryGate implements Gate {
 
     @Override
     public GateOutcome evaluate(Card card, AgentRun run) {
-        if (run != null && run.getStatus() != RunStatus.SUCCEEDED) {
+        if (run == null) {
+            return GateOutcome.fail("no run to inspect");
+        }
+        if (run.getStatus() != RunStatus.SUCCEEDED) {
             return GateOutcome.fail("run ended " + run.getStatus());
         }
-        if (card.getBranch() == null || card.getBranch().isBlank()) {
-            return GateOutcome.fail("card has no branch, so there is nothing to check");
+
+        String patch = ReportedDiff.from(run.getOutput());
+        if (patch.isBlank()) {
+            // Not a pass. An agent that reported no diff either changed nothing
+            // or did not follow the contract, and neither is something to push.
+            return GateOutcome.fail("the agent reported no diff");
         }
 
-        try {
-            GateReport report = gateway.check(card.getBoard().getRepository(), card.getBranch());
-            String reason = trim(report.output());
-            return report.passed() ? GateOutcome.pass(reason) : GateOutcome.fail(reason);
+        BranchChange reported = BranchChange.fromReportedPatch(patch);
+        var problems = inspector.inspect(reported, card.getBranch(),
+                card.getBoard().getDefaultBranch());
 
-        } catch (GatewayException ex) {
-            // Unreachable is not the same as clean. Holding keeps the card where
-            // it is and visible; passing would let an unchecked change onward on
-            // the strength of a network error.
-            LOG.warn("Repository gate could not reach the gateway for card {}: {}",
-                    card.getId(), ex.getMessage());
-            return GateOutcome.hold("push gate unreachable: " + ex.getMessage());
+        if (problems.isEmpty()) {
+            LOG.debug("Card {} passed inspection over {} files",
+                    card.getId(), reported.files().size());
+            return GateOutcome.pass("inspected " + reported.files().size()
+                    + " changed files, nothing objectionable");
         }
-    }
-
-    private String trim(String output) {
-        if (output == null || output.isBlank()) {
-            return "push gate returned no output";
-        }
-        String trimmed = output.strip();
-        return trimmed.length() <= MAX_REASON ? trimmed
-                : trimmed.substring(trimmed.length() - MAX_REASON);
+        return GateOutcome.fail(String.join("; ", problems));
     }
 }

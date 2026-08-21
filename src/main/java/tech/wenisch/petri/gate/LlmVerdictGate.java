@@ -7,8 +7,6 @@ import tech.wenisch.petri.entity.AgentRun;
 import tech.wenisch.petri.entity.Card;
 import tech.wenisch.petri.entity.GateType;
 import tech.wenisch.petri.entity.RunStatus;
-import tech.wenisch.petri.gateway.AgentGateway;
-import tech.wenisch.petri.gateway.GatewayException;
 import tech.wenisch.petri.review.ReviewException;
 import tech.wenisch.petri.review.ReviewModel;
 
@@ -49,11 +47,9 @@ public class LlmVerdictGate implements Gate {
             """;
 
     private final ReviewModel reviewer;
-    private final AgentGateway gateway;
 
-    public LlmVerdictGate(ReviewModel reviewer, AgentGateway gateway) {
+    public LlmVerdictGate(ReviewModel reviewer) {
         this.reviewer = reviewer;
-        this.gateway = gateway;
     }
 
     @Override
@@ -67,14 +63,12 @@ public class LlmVerdictGate implements Gate {
             return GateOutcome.fail("run ended " + run.getStatus());
         }
 
-        String diff;
-        try {
-            diff = gateway.diff(card.getBoard().getRepository(), card.getBranch());
-        } catch (GatewayException ex) {
-            return GateOutcome.hold("could not read the diff: " + ex.getMessage());
-        }
+        // The same reported diff the repository gate inspected, so the reviewer
+        // is judging the change that is about to be pushed rather than whatever
+        // a later fetch would return.
+        String diff = ReportedDiff.from(run == null ? null : run.getOutput());
 
-        if (diff == null || diff.isBlank()) {
+        if (diff.isBlank()) {
             return GateOutcome.fail("there is no change to review");
         }
 
