@@ -39,19 +39,34 @@ public class RunnerService {
         this.metrics = metrics;
     }
 
+    /**
+     * Start whatever is eligible, until the concurrency limit says stop.
+     *
+     * <p>The loop terminates on its own: every successful start counts against
+     * the limit the ledger enforces, so {@code claim()} runs dry. A failure to
+     * start stops the cycle rather than moving on, because the next card would
+     * be about to call the same unreachable gateway - and each attempt costs a
+     * card one of its tries.
+     */
     public void startEligibleWork() {
-        Optional<RunLedger.ClaimedWork> claimed = ledger.claim();
-        if (claimed.isEmpty()) {
-            return;
-        }
+        for (Optional<RunLedger.ClaimedWork> claimed = ledger.claim();
+             claimed.isPresent();
+             claimed = ledger.claim()) {
 
-        RunLedger.ClaimedWork work = claimed.get();
+            if (!start(claimed.get())) {
+                return;
+            }
+        }
+    }
+
+    private boolean start(RunLedger.ClaimedWork work) {
         try {
             String sessionId = gateway.start(new StartRequest(
                     work.workspace(), work.repository(), work.cloneUrl(),
                     work.branch(), work.prompt()));
             ledger.markStarted(work.runId(), sessionId);
             metrics.runStarted();
+            return true;
 
         } catch (GatewayException ex) {
             // The claim already stands, so the attempt is spent and the run is
@@ -59,6 +74,7 @@ public class RunnerService {
             // never started is the state the liveness poller knows how to reap.
             ledger.markFailed(work.runId(), ex.getMessage());
             LOG.warn("Card {} could not be started: {}", work.cardId(), ex.getMessage());
+            return false;
         }
     }
 

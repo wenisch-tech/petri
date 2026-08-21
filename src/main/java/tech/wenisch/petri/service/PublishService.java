@@ -47,25 +47,37 @@ public class PublishService {
         this.metrics = metrics;
     }
 
-    /** @return what happened, for the card's history, or null if nothing was due */
-    public String publish(Card card, boolean publishing) {
+    /**
+     * What publishing did.
+     *
+     * @param note           for the card's history
+     * @param pullRequestUrl the new pull request, or null if none was opened.
+     *                       Returned rather than written onto the card, because
+     *                       the caller is outside a transaction and a write to a
+     *                       detached entity would be silently lost.
+     */
+    public record Published(String note, String pullRequestUrl) {
+    }
+
+    /** @return what happened, or null if nothing was due */
+    public Published publish(Card card, boolean publishing) {
         if (!publishing) {
             return null;
         }
         if (card.getPullRequestUrl() != null && !card.getPullRequestUrl().isBlank()) {
             // Already published. A card that was rejected, went back, and came
             // round again must not open a second pull request for one branch.
-            return "already published";
+            return new Published("already published", null);
         }
 
         String branch = card.getBranch();
         if (branch == null || branch.isBlank()) {
-            return "nothing to publish: the card has no branch";
+            return new Published("nothing to publish: the card has no branch", null);
         }
 
         ForgeClient forge = forges.get(card.getBoard().getForge());
         if (forge == null) {
-            return "no client configured for " + card.getBoard().getForge();
+            return new Published("no client configured for " + card.getBoard().getForge(), null);
         }
 
         String repository = card.getBoard().getRepository();
@@ -77,7 +89,7 @@ public class PublishService {
                 // The agent said it pushed and nothing is there. Reporting this
                 // as published would be worse than useless.
                 metrics.published(false);
-                return "nothing was pushed to " + branch;
+                return new Published("nothing was pushed to " + branch, null);
             }
 
             List<String> problems = inspector.inspect(landed, branch, base);
@@ -87,21 +99,20 @@ public class PublishService {
                 LOG.warn("Card {} failed inspection after push: {}", card.getId(), problems);
                 forge.deleteBranch(repository, branch);
                 metrics.published(false);
-                return "refused after push: " + String.join("; ", problems);
+                return new Published("refused after push: " + String.join("; ", problems), null);
             }
 
             PullRequestRef pullRequest = forge.openPullRequest(
                     repository, base, branch, card.getTitle(), body(card, landed));
-            card.setPullRequestUrl(pullRequest.url());
             metrics.published(true);
 
             LOG.info("Card {} published as {}", card.getId(), pullRequest.url());
-            return "pull request opened: " + pullRequest.url();
+            return new Published("pull request opened: " + pullRequest.url(), pullRequest.url());
 
         } catch (ForgeException ex) {
             metrics.published(false);
             LOG.warn("Card {} could not be published: {}", card.getId(), ex.getMessage());
-            return "could not publish: " + ex.getMessage();
+            return new Published("could not publish: " + ex.getMessage(), null);
         }
     }
 

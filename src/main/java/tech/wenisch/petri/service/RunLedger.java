@@ -41,8 +41,37 @@ public class RunLedger {
                               String cloneUrl, String branch, String prompt) {
     }
 
+    /**
+     * A run as the poller needs it, with nothing lazy left on it.
+     *
+     * <p>The poller works outside a transaction, so an entity here would be a
+     * detached proxy waiting to throw on the first association it touches.
+     */
+    public record OpenRun(Long runId, String sessionId, Instant startedAt, Instant lastEventAt) {
+
+        /** How long this run has produced nothing, measured from its last sign of life. */
+        public java.time.Duration silenceFor(Instant now) {
+            Instant since = lastEventAt != null ? lastEventAt : startedAt;
+            return since == null ? java.time.Duration.ZERO : java.time.Duration.between(since, now);
+        }
+    }
+
+    /**
+     * Everything a gate reads, loaded and initialised before the transaction ends.
+     *
+     * <p>These are entities rather than a projection because the gates take
+     * entities, and they are detached rather than managed because deciding
+     * involves a model call - which must not happen with a database connection
+     * held open. Every association a gate or a transition touches is walked here
+     * on purpose; leaving one lazy would move the failure to a scheduled thread
+     * where no test would see it.
+     */
+    public record GateInput(Card card, AgentRun run, WorkflowState state) {
+    }
+
     private final Map<Forge, ForgeClient> forges;
     private final String workspaceRoot;
+    private final int maxConcurrentRuns;
     private final BoardRepository boards;
     private final WorkflowStateRepository states;
     private final CardRepository cards;
@@ -50,12 +79,14 @@ public class RunLedger {
 
     public RunLedger(Map<Forge, ForgeClient> forges,
                      @Value("${petri.workspace-root:/workspaces/petri}") String workspaceRoot,
+                     @Value("${petri.max-concurrent-runs:1}") int maxConcurrentRuns,
                      BoardRepository boards,
                      WorkflowStateRepository states,
                      CardRepository cards,
                      AgentRunRepository runs) {
         this.forges = forges;
         this.workspaceRoot = workspaceRoot;
+        this.maxConcurrentRuns = Math.max(1, maxConcurrentRuns);
         this.boards = boards;
         this.states = states;
         this.cards = cards;
@@ -70,9 +101,14 @@ public class RunLedger {
      */
     @Transactional
     public Optional<ClaimedWork> claim() {
-        // One card at a time while the workspace is shared state on the agent's
-        // side. This goes away once each card gets its own session directory.
-        if (!openRuns().isEmpty()) {
+        // Bounded, not serialised. Cards no longer share a workspace, so the
+        // limit is about what the agent can actually run at once rather than
+        // about Petri. Left at one by default because the reference deployment
+        // serialises at the model: a second turn queued behind the first
+        // produces nothing while it waits, which is indistinguishable from a
+        // hung turn and gets it aborted for silence. Raise it only where turns
+        // really do run in parallel.
+        if (openRuns().size() >= maxConcurrentRuns) {
             return Optional.empty();
         }
 
@@ -132,6 +168,83 @@ public class RunLedger {
             run.setSummary(reason);
             runs.save(run);
             LOG.warn("Run {} could not be started: {}", runId, reason);
+        });
+    }
+
+    /** Open runs, flattened for a poller that holds no transaction. */
+    @Transactional(readOnly = true)
+    public List<OpenRun> openRunViews() {
+        return openRuns().stream()
+                .map(run -> new OpenRun(run.getId(), run.getSessionId(),
+                        run.getStartedAt(), run.getLastEventAt()))
+                .toList();
+    }
+
+    /** A run is alive and said so. */
+    @Transactional
+    public void recordEvent(Long runId, Instant lastEventAt, String detail) {
+        runs.findById(runId).ifPresent(run -> {
+            if (lastEventAt != null) {
+                run.setLastEventAt(lastEventAt);
+            }
+            if (detail != null) {
+                run.setSummary(detail);
+            }
+            runs.save(run);
+        });
+    }
+
+    /**
+     * Close a run.
+     *
+     * <p>The agent's last message is passed in rather than fetched here: reading
+     * it is an HTTP call, and this method holds a transaction.
+     */
+    @Transactional
+    public void finish(Long runId, RunStatus status, String reason, String output, Instant now) {
+        runs.findById(runId).ifPresent(run -> {
+            run.setStatus(status);
+            run.setFinishedAt(now);
+            run.setSummary(reason);
+            run.setOutput(output);
+            runs.save(run);
+            LOG.info("Run {} finished: {} ({})", runId, status, reason);
+        });
+    }
+
+    /** Load a finished run and its card, with every association a gate reads. */
+    @Transactional(readOnly = true)
+    public Optional<GateInput> gateInput(Long runId) {
+        return runs.findById(runId).map(run -> {
+            Card card = run.getCard();
+            WorkflowState state = run.getState();
+            // Touched deliberately, inside the transaction, so what leaves here
+            // is safe to read once it has closed.
+            card.getTitle();
+            card.getBoard().getRepository();
+            state.getName();
+            initialise(state.getNextOnPass());
+            initialise(state.getNextOnFail());
+            return new GateInput(card, run, state);
+        });
+    }
+
+    private void initialise(WorkflowState state) {
+        if (state != null) {
+            state.getName();
+            state.isPublish();
+        }
+    }
+
+    /** Store the pull request a detached card was given while outside a transaction. */
+    @Transactional
+    public void recordPullRequest(Long cardId, String url) {
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        cards.findById(cardId).ifPresent(card -> {
+            card.setPullRequestUrl(url);
+            cards.save(card);
         });
     }
 

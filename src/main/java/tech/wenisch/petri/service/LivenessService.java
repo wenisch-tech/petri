@@ -4,11 +4,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import tech.wenisch.petri.entity.AgentRun;
 import tech.wenisch.petri.entity.Card;
 import tech.wenisch.petri.entity.RunStatus;
 import tech.wenisch.petri.entity.WorkflowState;
@@ -18,7 +17,6 @@ import tech.wenisch.petri.gateway.AgentGateway;
 import tech.wenisch.petri.gateway.GatewayProperties;
 import tech.wenisch.petri.gateway.SessionSnapshot;
 import tech.wenisch.petri.gateway.SessionState;
-import tech.wenisch.petri.repository.AgentRunRepository;
 
 /**
  * Watches open runs, and decides what happens when one ends.
@@ -27,13 +25,20 @@ import tech.wenisch.petri.repository.AgentRunRepository;
  * reports BUSY for the whole of a single model call, and a call on a contended
  * GPU can legitimately take minutes, so elapsed time never distinguishes working
  * from hung. Time since the last observed event does.
+ *
+ * <p>Like the runner, this holds no transaction of its own. One cycle makes four
+ * kinds of network call - observing sessions, reading a transcript, asking a
+ * reviewing model for a verdict, and opening a pull request - and a reviewing
+ * model can take minutes. Every database write around them is a short
+ * transaction in {@link RunLedger} or {@link TransitionService}; nothing here
+ * pins a connection while waiting on something else.
  */
 @Service
 public class LivenessService {
 
     private static final Logger LOG = LoggerFactory.getLogger(LivenessService.class);
 
-    private final AgentRunRepository runs;
+    private final RunLedger ledger;
     private final AgentGateway gateway;
     private final GatewayProperties properties;
     private final GateRegistry gates;
@@ -41,14 +46,14 @@ public class LivenessService {
     private final PublishService publisher;
     private final PetriMetrics metrics;
 
-    public LivenessService(AgentRunRepository runs,
+    public LivenessService(RunLedger ledger,
                            AgentGateway gateway,
                            GatewayProperties properties,
                            GateRegistry gates,
                            TransitionService transitions,
                            PublishService publisher,
                            PetriMetrics metrics) {
-        this.runs = runs;
+        this.ledger = ledger;
         this.gateway = gateway;
         this.properties = properties;
         this.gates = gates;
@@ -57,45 +62,42 @@ public class LivenessService {
         this.metrics = metrics;
     }
 
-
-    @Transactional
     public void observeOpenRuns() {
-        List<AgentRun> open = runs.findByStatusIn(List.of(RunStatus.PENDING, RunStatus.RUNNING));
+        List<RunLedger.OpenRun> open = ledger.openRunViews();
         if (open.isEmpty()) {
             return;
         }
 
         List<String> sessionIds = open.stream()
-                .map(AgentRun::getSessionId)
+                .map(RunLedger.OpenRun::sessionId)
                 .filter(id -> id != null && !id.isBlank())
                 .toList();
         Map<String, SessionSnapshot> snapshots = gateway.observe(sessionIds);
 
         Instant now = Instant.now();
-        for (AgentRun run : open) {
-            SessionSnapshot snapshot = run.getSessionId() == null
-                    ? null : snapshots.get(run.getSessionId());
+        for (RunLedger.OpenRun run : open) {
+            SessionSnapshot snapshot = run.sessionId() == null
+                    ? null : snapshots.get(run.sessionId());
             apply(run, snapshot, now);
         }
     }
 
-    private void apply(AgentRun run, SessionSnapshot snapshot, Instant now) {
+    private void apply(RunLedger.OpenRun run, SessionSnapshot snapshot, Instant now) {
         // A run with no session id never got as far as the gateway. That happens
         // if the process dies between recording the run and starting it, and
         // nothing else can ever resolve it: there is no session to ask about.
-        // Left alone it stays open forever and - because dispatch is serialised -
-        // blocks every board on the instance. One such run, orphaned by a crash,
-        // wedged a running deployment.
-        if (run.getSessionId() == null || run.getSessionId().isBlank()) {
+        // Left alone it stays open forever, holding a slot and holding its card.
+        if (run.sessionId() == null || run.sessionId().isBlank()) {
             if (!withinStartupGrace(run, now)) {
                 finish(run, RunStatus.FAILED, "never received a session id", now);
             }
             return;
         }
 
-        if (snapshot != null && snapshot.lastEventAt() != null) {
-            run.setLastEventAt(snapshot.lastEventAt());
-        }
+        Instant lastEventAt = snapshot != null && snapshot.lastEventAt() != null
+                ? snapshot.lastEventAt() : run.lastEventAt();
+        RunLedger.OpenRun seen = new RunLedger.OpenRun(
+                run.runId(), run.sessionId(), run.startedAt(), lastEventAt);
 
         SessionState state = snapshot == null ? SessionState.UNKNOWN : snapshot.state();
         switch (state) {
@@ -104,75 +106,76 @@ public class LivenessService {
                 // producing, so "idle" immediately after starting means "not
                 // begun yet", not "done". Concluding here would end every run
                 // within seconds of creating it.
-                if (withinStartupGrace(run, now)) {
-                    runs.save(run);
+                if (withinStartupGrace(seen, now)) {
+                    ledger.recordEvent(seen.runId(), lastEventAt, null);
                 } else {
-                    finish(run, RunStatus.SUCCEEDED, "session went idle", now);
+                    finish(seen, RunStatus.SUCCEEDED, "session went idle", now);
                 }
             }
-            case RETRY -> {
-                // Still alive, and saying why it is slow. Surfacing the reason is
-                // better than a card that merely looks stuck.
-                run.setSummary(snapshot.detail());
-                runs.save(run);
-            }
-            case BUSY -> enforceBounds(run, now);
-            case UNKNOWN -> {
-                // The gateway has no record of the session. Treat it as gone
-                // rather than waiting forever on something nobody is running.
-                if (run.getSessionId() != null) {
-                    finish(run, RunStatus.FAILED, "gateway lost the session", now);
-                }
-            }
+            // Still alive, and saying why it is slow. Surfacing the reason is
+            // better than a card that merely looks stuck.
+            case RETRY -> ledger.recordEvent(seen.runId(), lastEventAt, snapshot.detail());
+            case BUSY -> enforceBounds(seen, now);
+            // The gateway has no record of the session. Treat it as gone rather
+            // than waiting forever on something nobody is running.
+            case UNKNOWN -> finish(seen, RunStatus.FAILED, "gateway lost the session", now);
         }
     }
 
-    private boolean withinStartupGrace(AgentRun run, Instant now) {
-        return run.getStartedAt() != null
-                && Duration.between(run.getStartedAt(), now)
+    private boolean withinStartupGrace(RunLedger.OpenRun run, Instant now) {
+        return run.startedAt() != null
+                && Duration.between(run.startedAt(), now)
                         .compareTo(properties.startupGrace()) < 0;
     }
 
-    private void enforceBounds(AgentRun run, Instant now) {
+    private void enforceBounds(RunLedger.OpenRun run, Instant now) {
         Duration silence = run.silenceFor(now);
         if (silence.compareTo(properties.idleTimeout()) > 0) {
-            gateway.abort(run.getSessionId());
+            gateway.abort(run.sessionId());
             finish(run, RunStatus.ABORTED,
                     "produced no output for " + silence.toMinutes() + "m", now);
             return;
         }
 
-        if (run.getStartedAt() != null
-                && Duration.between(run.getStartedAt(), now).compareTo(properties.maxDuration()) > 0) {
-            gateway.abort(run.getSessionId());
+        if (run.startedAt() != null
+                && Duration.between(run.startedAt(), now).compareTo(properties.maxDuration()) > 0) {
+            gateway.abort(run.sessionId());
             finish(run, RunStatus.ABORTED, "ran past the ceiling", now);
             return;
         }
 
-        runs.save(run);
+        ledger.recordEvent(run.runId(), run.lastEventAt(), null);
     }
 
-    private void finish(AgentRun run, RunStatus status, String reason, Instant now) {
-        run.setStatus(status);
-        run.setFinishedAt(now);
-        run.setSummary(reason);
-        // Fetched once, here, rather than on every gate evaluation or page view.
-        if (run.getSessionId() != null) {
-            run.setOutput(gateway.lastMessage(run.getSessionId()));
-        }
-        runs.save(run);
+    private void finish(RunLedger.OpenRun run, RunStatus status, String reason, Instant now) {
+        // Fetched once, here, rather than on every gate evaluation or page view -
+        // and before the transaction that stores it, because it is an HTTP call.
+        String output = run.sessionId() == null ? null : gateway.lastMessage(run.sessionId());
+
+        ledger.finish(run.runId(), status, reason, output, now);
         metrics.runFinished(status);
-        LOG.info("Run {} finished: {} ({})", run.getId(), status, reason);
-        decide(run);
+        decide(run.runId());
     }
 
-    /** Ask the state's gate what happens now, and act on it. */
-    private void decide(AgentRun run) {
-        Card card = run.getCard();
-        WorkflowState state = run.getState();
+    /**
+     * Ask the state's gate what happens now, and act on it.
+     *
+     * <p>Loaded, decided and applied in separate steps rather than one, because
+     * deciding can mean asking a reviewing model, and publishing means calling
+     * the forge.
+     */
+    private void decide(Long runId) {
+        Optional<RunLedger.GateInput> loaded = ledger.gateInput(runId);
+        if (loaded.isEmpty()) {
+            return;
+        }
+        RunLedger.GateInput input = loaded.get();
+        Card card = input.card();
+        WorkflowState state = input.state();
 
-        GateOutcome outcome = gates.evaluate(state.getGate(), card, run);
+        GateOutcome outcome = gates.evaluate(state.getGate(), card, input.run());
         metrics.gateEvaluated(state.getGate().name(), outcome.decision());
+
         switch (outcome.decision()) {
             case PASS -> {
                 if (state.getNextOnPass() == null) {
@@ -180,15 +183,12 @@ public class LivenessService {
                     return;
                 }
                 WorkflowState target = state.getNextOnPass();
-                transitions.move(card, target, actor(state), outcome.reason(), run);
+                transitions.move(card, target, actor(state), outcome.reason(), input.run());
 
                 // Publishing happens on arrival, so the state that opens the
                 // pull request is named in the pipeline rather than inferred
                 // from being last.
-                String published = publisher.publish(card, target.isPublish());
-                if (published != null) {
-                    transitions.note(card, target, "publish", published, run);
-                }
+                publish(input, target);
             }
             case FAIL -> {
                 if (state.getNextOnFail() == null || state.getNextOnFail().equals(state)) {
@@ -199,11 +199,23 @@ public class LivenessService {
                     return;
                 }
                 transitions.move(card, state.getNextOnFail(),
-                        actor(state), outcome.reason(), run);
+                        actor(state), outcome.reason(), input.run());
             }
             case HOLD -> LOG.info("Card {} held in {}: {}",
                     card.getId(), state.getName(), outcome.reason());
         }
+    }
+
+    private void publish(RunLedger.GateInput input, WorkflowState target) {
+        Card card = input.card();
+        PublishService.Published published = publisher.publish(card, target.isPublish());
+        if (published == null) {
+            return;
+        }
+        // The card is detached out here, so the pull request URL is stored
+        // explicitly rather than by hoping a write to it gets flushed.
+        ledger.recordPullRequest(card.getId(), published.pullRequestUrl());
+        transitions.note(card, target, "publish", published.note(), input.run());
     }
 
     private String actor(WorkflowState state) {
