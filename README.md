@@ -129,6 +129,15 @@ docker run -p 8080:8080 ghcr.io/wenisch-tech/petri:latest
 
 Starts with an embedded H2 database, no configuration required. Open <http://localhost:8080>.
 
+**There is no fixed default password.** The board login user is `admin`; with no
+`petri.security.password` set, Petri generates a random one at startup and logs
+it - check the container logs for a line like
+`No petri.security.password set. Generated one for this run only: ...`. Set the
+property yourself for anything long-lived. The write API is stricter still: with
+no `petri.security.api-key` set it rejects every request rather than opening up,
+since it is what queues agent runs against real repositories. See
+[Access and the API](docs/configuration-security.md) for both.
+
 ### Run on Kubernetes with Helm
 
 ```bash
