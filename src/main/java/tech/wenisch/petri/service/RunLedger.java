@@ -227,6 +227,11 @@ public class RunLedger {
             // is safe to read once it has closed.
             card.getTitle();
             card.getBoard().getRepository();
+            // The card's own state as well as the run's. They are usually the
+            // same row and therefore the same instance, but a card moved while
+            // its run was open leaves an untouched proxy here - and the first
+            // thing a transition does is read where the card is coming from.
+            card.getState().getName();
             state.getName();
             initialise(state.getNextOnPass());
             initialise(state.getNextOnFail());
