@@ -37,18 +37,8 @@ public class GatewayConfig {
             return new DisabledAgentGateway();
         }
 
-        if (properties.repoApiUrl().isBlank()) {
-            LOG.warn("petri.gateway.repo-api-url is not set; the repository gate and "
-                    + "checkout cannot be reached, so no work can be started");
-            return new DisabledAgentGateway();
-        }
-
-        LOG.info("Agent gateway sessions at {}, repository shim at {}",
-                properties.baseUrl(), properties.repoApiUrl());
-        return new HttpAgentGateway(
-                client(properties, properties.baseUrl()),
-                client(properties, properties.repoApiUrl()),
-                properties.workspaceTemplate());
+        LOG.info("Agent gateway sessions at {}", properties.baseUrl());
+        return new HttpAgentGateway(client(properties, properties.baseUrl()));
     }
 
     /**

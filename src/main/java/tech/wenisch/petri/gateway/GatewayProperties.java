@@ -6,15 +6,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Connection details for the agent gateway, plus the bounds a run is held to.
  *
+ * <p>Only the session API. There is no repository endpoint here on purpose: the
+ * agent does its own git, so Petri needs no shim holding a credential on its
+ * behalf, and none of the deployment that would come with one.
+ *
  * @param baseUrl        session API root, e.g. {@code http://gateway:4096}
- * @param repoApiUrl     repository shim root, e.g. {@code http://gateway:4098}.
- *                       A separate service: it holds the credential and the push
- *                       gate, and is deliberately not exposed where the session
- *                       API is
- * @param workspaceTemplate where the gateway keeps a checkout. Supports
- *                       {@code {owner}}, {@code {name}} and {@code {repository}};
- *                       the layout belongs to the gateway, so it is configured
- *                       rather than assumed here
  * @param username       basic-auth user
  * @param password       basic-auth password
  * @param enabled        on by default; set false to pause the runner without
@@ -40,8 +36,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "petri.gateway")
 public record GatewayProperties(
         String baseUrl,
-        String repoApiUrl,
-        String workspaceTemplate,
         String username,
         String password,
         Boolean enabled,
@@ -52,9 +46,6 @@ public record GatewayProperties(
 
     public GatewayProperties {
         baseUrl = baseUrl == null ? "" : baseUrl;
-        repoApiUrl = repoApiUrl == null ? "" : repoApiUrl;
-        workspaceTemplate = workspaceTemplate == null || workspaceTemplate.isBlank()
-                ? "/data/workspaces/{owner}__{name}" : workspaceTemplate;
         // Defaulted here as well as in application.properties so the two agree
         // even if the property is removed; an absent primitive boolean would
         // otherwise bind to false and quietly disable the runner.

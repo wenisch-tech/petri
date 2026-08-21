@@ -185,9 +185,8 @@ public class LivenessService {
                 // Publishing happens on arrival, so the state that opens the
                 // pull request is named in the pipeline rather than inferred
                 // from being last.
-                String published = publisher.publish(card, target);
+                String published = publisher.publish(card, target.isPublish());
                 if (published != null) {
-                    metrics.published(card.getPullRequestUrl() != null);
                     transitions.note(card, target, "publish", published, run);
                 }
             }

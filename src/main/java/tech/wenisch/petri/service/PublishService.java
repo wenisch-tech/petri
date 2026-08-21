@@ -1,102 +1,132 @@
 package tech.wenisch.petri.service;
 
+import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import tech.wenisch.petri.entity.Card;
-import tech.wenisch.petri.entity.WorkflowState;
-import tech.wenisch.petri.gateway.AgentGateway;
-import tech.wenisch.petri.gateway.GateReport;
-import tech.wenisch.petri.gateway.GatewayException;
-import tech.wenisch.petri.repository.CardRepository;
+import tech.wenisch.petri.entity.Forge;
+import tech.wenisch.petri.forge.BranchChange;
+import tech.wenisch.petri.forge.ForgeClient;
+import tech.wenisch.petri.forge.ForgeException;
+import tech.wenisch.petri.forge.PullRequestRef;
+import tech.wenisch.petri.gate.ChangeInspector;
 
 /**
- * Pushes a branch and opens a pull request, once a card reaches a state that
- * publishes.
+ * Verifies what actually landed, then opens the pull request.
  *
- * <p>This is the step that turns a card into something a person can act on.
- * Everything before it happens inside the gateway's workspace and is invisible
- * from the forge.
+ * <p>This is the second inspection. The first ran on the diff the agent
+ * <em>reported</em>, before the push, and stopped a mistake reaching the remote.
+ * This one reads what is really on the branch, and catches an agent whose report
+ * did not match its commits - a case the first check cannot see by construction.
  *
- * <p>There is deliberately no merge, here or anywhere. Landing a change is a
- * decision for a person, and nothing in Petri should be able to make it.
+ * <p>Petri opens the pull request rather than the agent, for four reasons that
+ * all showed up in practice: a rejected change never gets one at all; the body
+ * can say which gates passed and which models were involved, which the agent
+ * does not know; a card that comes round twice does not open a second; and its
+ * existence is a fact Petri established rather than a claim it has to believe.
+ *
+ * <p>There is no merge, here or anywhere. Landing a change is a person's
+ * decision.
  */
 @Service
 public class PublishService {
 
     private static final Logger LOG = LoggerFactory.getLogger(PublishService.class);
 
-    private final AgentGateway gateway;
-    private final CardRepository cards;
+    private final Map<Forge, ForgeClient> forges;
+    private final ChangeInspector inspector;
+    private final PetriMetrics metrics;
 
-    public PublishService(AgentGateway gateway, CardRepository cards) {
-        this.gateway = gateway;
-        this.cards = cards;
+    public PublishService(Map<Forge, ForgeClient> forges,
+                          ChangeInspector inspector,
+                          PetriMetrics metrics) {
+        this.forges = forges;
+        this.inspector = inspector;
+        this.metrics = metrics;
     }
 
-    /**
-     * @return a description of what happened, for the card's history
-     */
-    @Transactional
-    public String publish(Card card, WorkflowState state) {
-        if (!state.isPublish()) {
+    /** @return what happened, for the card's history, or null if nothing was due */
+    public String publish(Card card, boolean publishing) {
+        if (!publishing) {
             return null;
         }
         if (card.getPullRequestUrl() != null && !card.getPullRequestUrl().isBlank()) {
-            // Already published. Re-entering a publishing state - after a
-            // rejection sent the card back and it came round again - must not
-            // open a second pull request for the same branch.
-            LOG.debug("Card {} already has a pull request", card.getId());
+            // Already published. A card that was rejected, went back, and came
+            // round again must not open a second pull request for one branch.
             return "already published";
         }
 
-        String repository = card.getBoard().getRepository();
         String branch = card.getBranch();
         if (branch == null || branch.isBlank()) {
             return "nothing to publish: the card has no branch";
         }
 
+        ForgeClient forge = forges.get(card.getBoard().getForge());
+        if (forge == null) {
+            return "no client configured for " + card.getBoard().getForge();
+        }
+
+        String repository = card.getBoard().getRepository();
+        String base = card.getBoard().getDefaultBranch();
+
         try {
-            // The gateway re-runs its own gate on the rebased result before it
-            // pushes, so a refusal here is a real refusal and not a formality.
-            GateReport pushed = gateway.push(repository, branch);
-            if (!pushed.passed()) {
-                LOG.warn("Card {} was not pushed: {}", card.getId(), pushed.output());
-                return "push refused: " + pushed.output();
+            BranchChange landed = forge.change(repository, base, branch);
+            if (landed.isEmpty()) {
+                // The agent said it pushed and nothing is there. Reporting this
+                // as published would be worse than useless.
+                metrics.published(false);
+                return "nothing was pushed to " + branch;
             }
 
-            String url = gateway.openPullRequest(repository, branch, card.getTitle(), body(card));
-            card.setPullRequestUrl(url);
-            cards.save(card);
+            List<String> problems = inspector.inspect(landed, branch, base);
+            if (!problems.isEmpty()) {
+                // What landed differs from what was approved. Remove it rather
+                // than leave a rejected branch sitting on the forge.
+                LOG.warn("Card {} failed inspection after push: {}", card.getId(), problems);
+                forge.deleteBranch(repository, branch);
+                metrics.published(false);
+                return "refused after push: " + String.join("; ", problems);
+            }
 
-            LOG.info("Card {} published as {}", card.getId(), url);
-            return "pull request opened: " + url;
+            PullRequestRef pullRequest = forge.openPullRequest(
+                    repository, base, branch, card.getTitle(), body(card, landed));
+            card.setPullRequestUrl(pullRequest.url());
+            metrics.published(true);
 
-        } catch (GatewayException ex) {
+            LOG.info("Card {} published as {}", card.getId(), pullRequest.url());
+            return "pull request opened: " + pullRequest.url();
+
+        } catch (ForgeException ex) {
+            metrics.published(false);
             LOG.warn("Card {} could not be published: {}", card.getId(), ex.getMessage());
             return "could not publish: " + ex.getMessage();
         }
     }
 
     /**
-     * Say plainly where the change came from.
+     * Say where the change came from and what was checked.
      *
      * <p>A reviewer's first question is what produced this and whether anything
-     * human has looked at it, so the answer goes in the body rather than being
-     * left to be inferred from the branch name.
+     * human has seen it. That answer belongs in the body rather than being left
+     * to be inferred from a branch name.
      */
-    private String body(Card card) {
+    private String body(Card card, BranchChange landed) {
         return """
                 Petri card #%d: %s
 
                 %s
 
-                Written by an agent, checked by the repository gate, and reviewed
-                by a model. No human has read this diff yet.
+                %d commit(s) across %d file(s). Written by an agent, inspected
+                before the push and again after it, and reviewed by a model.
+
+                **No human has read this diff yet.**
                 """.formatted(
                 card.getId(),
                 card.getTitle(),
-                card.getDescription() == null ? "" : card.getDescription());
+                card.getDescription() == null ? "" : card.getDescription(),
+                landed.commits().size(),
+                landed.files().size());
     }
 }

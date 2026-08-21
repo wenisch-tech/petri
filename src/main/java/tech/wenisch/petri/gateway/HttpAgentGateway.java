@@ -13,10 +13,8 @@ import org.springframework.web.client.RestClient;
 /**
  * Talks to an opencode gateway.
  *
- * <p>Two services, deliberately kept apart. The <em>session API</em> creates and
- * observes agent sessions. The <em>repository API</em> is an allowlisted shim
- * over the gateway's own git tooling: it owns the checkout, the credential and
- * the push gate, and Petri only ever asks it questions.
+ * <p>Only the session API. Git is the agent's business: it clones and pushes
+ * with its own credential, in a workspace Petri names but never reads.
  *
  * <p>Every path here was checked against a running gateway's OpenAPI document.
  * An earlier version invented {@code POST /run/async} and {@code POST /check} on
@@ -33,13 +31,9 @@ public class HttpAgentGateway implements AgentGateway {
             new ParameterizedTypeReference<>() {};
 
     private final RestClient sessions;
-    private final RestClient repository;
-    private final String workspaceTemplate;
 
-    public HttpAgentGateway(RestClient sessions, RestClient repository, String workspaceTemplate) {
+    public HttpAgentGateway(RestClient sessions) {
         this.sessions = sessions;
-        this.repository = repository;
-        this.workspaceTemplate = workspaceTemplate;
     }
 
     /**
@@ -52,14 +46,11 @@ public class HttpAgentGateway implements AgentGateway {
      */
     @Override
     public String start(StartRequest request) {
-        Map<String, Object> opened =
-                repoCommand("open", List.of(request.repository(), request.branch()));
-        if (exitCode(opened) != 0) {
-            throw new GatewayException("could not open " + request.repository()
-                    + " on " + request.branch() + ": " + output(opened));
-        }
-
-        String directory = workspaceFor(request.repository());
+        // No checkout step: the agent clones into its own workspace with its own
+        // credential. Petri names the directory and nothing else, so it never
+        // needs to see the tree - which is what lets it run anywhere, beside any
+        // harness, rather than sharing a filesystem with one.
+        String directory = request.workspace();
 
         Map<String, Object> session = sessions.post()
                 .uri(builder -> builder.path("/session").queryParam("directory", directory).build())
@@ -81,20 +72,6 @@ public class HttpAgentGateway implements AgentGateway {
                 .toBodilessEntity();
 
         return sessionId.toString();
-    }
-
-    /**
-     * The gateway lays its workspaces out its own way, so the pattern is
-     * configuration rather than a layout guessed at inside this client.
-     */
-    private String workspaceFor(String repository) {
-        String[] parts = repository.split("/", 2);
-        String owner = parts.length == 2 ? parts[0] : "";
-        String name = parts.length == 2 ? parts[1] : repository;
-        return workspaceTemplate
-                .replace("{repository}", repository)
-                .replace("{owner}", owner)
-                .replace("{name}", name);
     }
 
     @Override
@@ -164,17 +141,12 @@ public class HttpAgentGateway implements AgentGateway {
         }
     }
 
-    @Override
-    public String diff(String repository, String branch) {
-        return output(repoCommand("diff", List.of()));
-    }
-
     /**
      * The agent's last message, assembled from the session's message parts.
      *
-     * <p>Only text parts are kept: tool calls and file attachments are how the
-     * agent worked, not what it concluded, and a gate reading the conclusion
-     * should not have to sift the mechanics out of it.
+     * <p>Only text parts are kept: tool calls and attachments are how the agent
+     * worked, not what it concluded, and whatever reads the conclusion should not
+     * have to sift the mechanics out of it.
      */
     @Override
     public String lastMessage(String sessionId) {
@@ -208,75 +180,5 @@ public class HttpAgentGateway implements AgentGateway {
             LOG.warn("Could not read the last message of session {}: {}", sessionId, ex.toString());
             return "";
         }
-    }
-
-    @Override
-    public GateReport check(String repository, String branch) {
-        Map<String, Object> response = repoCommand("check", List.of());
-        return new GateReport(exitCode(response) == 0, output(response));
-    }
-
-    @Override
-    public GateReport push(String repository, String branch) {
-        Map<String, Object> response = repoCommand("push", List.of());
-        return new GateReport(exitCode(response) == 0, output(response));
-    }
-
-    @Override
-    public String openPullRequest(String repository, String branch, String title, String body) {
-        Map<String, Object> response = repoCommand("pr", List.of(title, body));
-        if (exitCode(response) != 0) {
-            throw new GatewayException("could not open a pull request: " + output(response));
-        }
-        return extractUrl(output(response));
-    }
-
-    /** The shim prints a line containing the pull request URL. */
-    private String extractUrl(String output) {
-        for (String line : output.split("\\R")) {
-            int index = line.indexOf("http");
-            if (index >= 0) {
-                return line.substring(index).strip();
-            }
-        }
-        // No URL is not a failure worth losing the push over; the branch is
-        // pushed either way, and the raw output is kept on the card.
-        return output.strip();
-    }
-
-    /**
-     * Invoke one allowlisted subcommand on the repository shim.
-     *
-     * <p>The shim answers {@code exit_code} and {@code output}. A non-zero exit
-     * is a refusal carrying real output - a failed gate, a bad branch - not a
-     * transport error, so it comes back as data rather than as an exception.
-     */
-    private Map<String, Object> repoCommand(String command, List<String> args) {
-        try {
-            Map<String, Object> response = repository.post()
-                    .uri("/{command}", command)
-                    .header(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .body(Map.of("args", args))
-                    .retrieve()
-                    .body(JSON_MAP);
-            if (response == null) {
-                throw new GatewayException("repository shim returned no result for " + command);
-            }
-            return response;
-        } catch (GatewayException ex) {
-            throw ex;
-        } catch (RuntimeException ex) {
-            throw new GatewayException("repository shim call '" + command + "' failed", ex);
-        }
-    }
-
-    private int exitCode(Map<String, Object> response) {
-        Object value = response.get("exit_code");
-        return value instanceof Number number ? number.intValue() : 0;
-    }
-
-    private String output(Map<String, Object> response) {
-        Object value = response.get("output");
-        return value == null ? "" : value.toString();
     }
 }

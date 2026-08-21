@@ -2,7 +2,10 @@ package tech.wenisch.petri.service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Value;
+import tech.wenisch.petri.forge.ForgeClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -34,19 +37,25 @@ public class RunLedger {
      * <p>Flattened deliberately: the caller is outside a transaction by the time
      * it uses this, so an entity here would be a detached proxy waiting to throw.
      */
-    public record ClaimedWork(Long runId, Long cardId, String repository,
-                              String branch, String prompt) {
+    public record ClaimedWork(Long runId, Long cardId, String workspace, String repository,
+                              String cloneUrl, String branch, String prompt) {
     }
 
+    private final Map<Forge, ForgeClient> forges;
+    private final String workspaceRoot;
     private final BoardRepository boards;
     private final WorkflowStateRepository states;
     private final CardRepository cards;
     private final AgentRunRepository runs;
 
-    public RunLedger(BoardRepository boards,
+    public RunLedger(Map<Forge, ForgeClient> forges,
+                     @Value("${petri.workspace-root:/workspaces/petri}") String workspaceRoot,
+                     BoardRepository boards,
                      WorkflowStateRepository states,
                      CardRepository cards,
                      AgentRunRepository runs) {
+        this.forges = forges;
+        this.workspaceRoot = workspaceRoot;
         this.boards = boards;
         this.states = states;
         this.cards = cards;
@@ -97,7 +106,8 @@ public class RunLedger {
         runs.save(run);
 
         return new ClaimedWork(run.getId(), card.getId(),
-                card.getBoard().getRepository(), branch, prompt(card, state));
+                workspaceFor(card), card.getBoard().getRepository(),
+                cloneUrl(card), branch, prompt(card, state));
     }
 
     @Transactional
@@ -145,6 +155,23 @@ public class RunLedger {
         return true;
     }
 
+    /**
+     * One workspace per card.
+     *
+     * <p>Turns in the same workspace see each other's commits, which is what lets
+     * one state commit and a later one push. Per card rather than per repository
+     * so two cards on one repository never share a tree - the shared-workspace
+     * arrangement this replaces is exactly what forced work to run one at a time.
+     */
+    private String workspaceFor(Card card) {
+        return workspaceRoot + "/card-" + card.getId();
+    }
+
+    private String cloneUrl(Card card) {
+        ForgeClient forge = forges.get(card.getBoard().getForge());
+        return forge == null ? "" : forge.cloneUrl(card.getBoard().getRepository());
+    }
+
     /** The branch owns the session, so a card without one gets a stable name now. */
     private String branchFor(Card card) {
         if (card.getBranch() != null && !card.getBranch().isBlank()) {
@@ -165,6 +192,9 @@ public class RunLedger {
             template = "{{title}}\n\n{{description}}";
         }
         return template
+                .replace("{{workspace}}", workspaceFor(card))
+                .replace("{{repository}}", card.getBoard().getRepository())
+                .replace("{{cloneUrl}}", cloneUrl(card))
                 .replace("{{title}}", card.getTitle())
                 .replace("{{description}}", card.getDescription() == null ? "" : card.getDescription())
                 .replace("{{branch}}", card.getBranch() == null ? "" : card.getBranch())

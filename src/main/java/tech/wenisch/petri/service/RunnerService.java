@@ -47,8 +47,9 @@ public class RunnerService {
 
         RunLedger.ClaimedWork work = claimed.get();
         try {
-            String sessionId = gateway.start(
-                    new StartRequest(work.repository(), work.branch(), work.prompt()));
+            String sessionId = gateway.start(new StartRequest(
+                    work.workspace(), work.repository(), work.cloneUrl(),
+                    work.branch(), work.prompt()));
             ledger.markStarted(work.runId(), sessionId);
             metrics.runStarted();
 

@@ -68,38 +68,6 @@ class GateTests {
                 java.util.List.of(".github/**", "Dockerfile", "**/Dockerfile"), "petri/"));
     }
 
-    /** Answers exactly what a test sets, and records nothing else. */
-    static class StubGateway implements AgentGateway {
-        GateReport report = new GateReport(true, "all checks pass");
-        String diff = "diff --git a/x b/x";
-        RuntimeException failWith;
-
-        @Override public String start(StartRequest request) { return "ses_stub"; }
-        @Override public Map<String, SessionSnapshot> observe(List<String> ids) { return Map.of(); }
-        @Override public void abort(String sessionId) { }
-        @Override public String lastMessage(String sessionId) { return ""; }
-        @Override public GateReport push(String r, String b) { return new GateReport(true, "pushed"); }
-        @Override public String openPullRequest(String r, String b, String t, String body) {
-            return "https://example.invalid/pulls/1";
-        }
-
-        @Override
-        public String diff(String repository, String branch) {
-            if (failWith != null) {
-                throw failWith;
-            }
-            return diff;
-        }
-
-        @Override
-        public GateReport check(String repository, String branch) {
-            if (failWith != null) {
-                throw failWith;
-            }
-            return report;
-        }
-    }
-
     // ---------------------------------------------------------------- repository
 
     @Test
@@ -205,14 +173,13 @@ class GateTests {
 
     // -------------------------------------------------------------- llm verdict
 
-    private LlmVerdictGate verdictGate(StubGateway gateway, ReviewModel reviewer) {
+    private LlmVerdictGate verdictGate(ReviewModel reviewer) {
         return new LlmVerdictGate(reviewer);
     }
 
     @Test
     void verdictGatePassesOnApproval() {
-        GateOutcome outcome = verdictGate(new StubGateway(),
-                (system, prompt) -> "VERDICT: APPROVED\n\nSmall and does what was asked.")
+        GateOutcome outcome = verdictGate((system, prompt) -> "VERDICT: APPROVED\n\nSmall and does what was asked.")
                 .evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.PASS);
@@ -220,8 +187,7 @@ class GateTests {
 
     @Test
     void verdictGateFailsOnRejection() {
-        GateOutcome outcome = verdictGate(new StubGateway(),
-                (system, prompt) -> "VERDICT: REJECTED\n\nDrops the null check.")
+        GateOutcome outcome = verdictGate((system, prompt) -> "VERDICT: REJECTED\n\nDrops the null check.")
                 .evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.FAIL);
@@ -233,8 +199,7 @@ class GateTests {
         // A model that reasons its way round to approving at the end has not met
         // the contract it was given, and must not pass a gate on a closing
         // sentence.
-        GateOutcome outcome = verdictGate(new StubGateway(),
-                (system, prompt) -> "This looks risky at first glance.\n"
+        GateOutcome outcome = verdictGate((system, prompt) -> "This looks risky at first glance.\n"
                         + "On reflection, VERDICT: APPROVED")
                 .evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
@@ -244,7 +209,7 @@ class GateTests {
 
     @Test
     void anUnavailableReviewerHoldsRatherThanPasses() {
-        GateOutcome outcome = verdictGate(new StubGateway(), (system, prompt) -> {
+        GateOutcome outcome = verdictGate((system, prompt) -> {
             throw new ReviewException("model unreachable");
         }).evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
 
@@ -254,7 +219,7 @@ class GateTests {
 
     @Test
     void thereIsNothingToReviewWhenTheAgentReportedNoDiff() {
-        GateOutcome outcome = verdictGate(new StubGateway(), (system, prompt) -> "VERDICT: APPROVED")
+        GateOutcome outcome = verdictGate((system, prompt) -> "VERDICT: APPROVED")
                 .evaluate(card("petri/1-x"), succeeded("I looked but changed nothing."));
 
         assertThat(outcome.decision()).isEqualTo(GateOutcome.Decision.FAIL);
@@ -265,7 +230,7 @@ class GateTests {
     void theReviewerSeesTheTaskTheReportAndTheDiff() {
         StringBuilder seen = new StringBuilder();
 
-        verdictGate(new StubGateway(), (system, prompt) -> {
+        verdictGate((system, prompt) -> {
             seen.append(prompt);
             return "VERDICT: APPROVED";
         }).evaluate(card("petri/1-x"), withDiff(CLEAN_PATCH));
@@ -297,7 +262,7 @@ class GateTests {
                 .isEqualTo(GateOutcome.Decision.FAIL);
         assertThat(new PlanShapeGate().evaluate(card("petri/1-x"), failed).decision())
                 .isEqualTo(GateOutcome.Decision.FAIL);
-        assertThat(verdictGate(new StubGateway(), (s, p) -> "VERDICT: APPROVED")
+        assertThat(verdictGate((s, p) -> "VERDICT: APPROVED")
                 .evaluate(card("petri/1-x"), failed).decision())
                 .isEqualTo(GateOutcome.Decision.FAIL);
     }

@@ -41,10 +41,9 @@ class RunnerTests {
     static class FakeGateway implements AgentGateway {
         final List<StartRequest> started = new ArrayList<>();
         final List<String> aborted = new ArrayList<>();
-        final List<String> pushed = new ArrayList<>();
-        final List<String> pullRequests = new ArrayList<>();
         final Map<String, SessionSnapshot> snapshots = new HashMap<>();
         String nextSessionId = "ses_fake0000000001";
+        String lastMessage = "finished";
         boolean failNextStart = false;
 
         @Override
@@ -72,31 +71,8 @@ class RunnerTests {
         }
 
         @Override
-        public GateReport check(String repository, String branch) {
-            return new GateReport(true, "all checks pass");
-        }
-
-        @Override
-        public String diff(String repository, String branch) {
-            return "diff --git a/x b/x";
-        }
-
-        @Override
         public String lastMessage(String sessionId) {
-            return "finished";
-        }
-
-        @Override
-        public GateReport push(String repository, String branch) {
-            pushed.add(branch);
-            return new GateReport(true, "pushed");
-        }
-
-        @Override
-        public String openPullRequest(String repository, String branch,
-                                      String title, String body) {
-            pullRequests.add(branch);
-            return "https://example.invalid/" + repository + "/pulls/1";
+            return lastMessage;
         }
     }
 
@@ -128,8 +104,6 @@ class RunnerTests {
         fake = (FakeGateway) gateway;
         fake.started.clear();
         fake.aborted.clear();
-        fake.pushed.clear();
-        fake.pullRequests.clear();
         fake.snapshots.clear();
         fake.failNextStart = false;
 
