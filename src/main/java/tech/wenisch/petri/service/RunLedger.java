@@ -2,9 +2,8 @@ package tech.wenisch.petri.service;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import tech.wenisch.petri.forge.ForgeClient;
+import tech.wenisch.petri.forge.ForgeClientRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -68,7 +67,7 @@ public class RunLedger {
     public record GateInput(Card card, AgentRun run, WorkflowState state) {
     }
 
-    private final Map<Forge, ForgeClient> forges;
+    private final ForgeClientRegistry forges;
     private final Redactor redactor;
     private final PolicySettingsService settings;
     private final BoardRepository boards;
@@ -76,7 +75,7 @@ public class RunLedger {
     private final CardRepository cards;
     private final AgentRunRepository runs;
 
-    public RunLedger(Map<Forge, ForgeClient> forges,
+    public RunLedger(ForgeClientRegistry forges,
                      Redactor redactor,
                      PolicySettingsService settings,
                      BoardRepository boards,
@@ -287,8 +286,9 @@ public class RunLedger {
     }
 
     private String cloneUrl(Card card) {
-        ForgeClient forge = forges.get(card.getBoard().getForge());
-        return forge == null ? "" : forge.cloneUrlForAgent(card.getBoard().getRepository());
+        return forges.get(card.getBoard().getForge())
+                .map(forge -> forge.cloneUrlForAgent(card.getBoard().getRepository()))
+                .orElse("");
     }
 
     /** The branch owns the session, so a card without one gets a stable name now. */

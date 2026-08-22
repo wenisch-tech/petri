@@ -1,14 +1,13 @@
 package tech.wenisch.petri.service;
 
 import java.util.List;
-import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import tech.wenisch.petri.entity.Card;
-import tech.wenisch.petri.entity.Forge;
 import tech.wenisch.petri.forge.BranchChange;
 import tech.wenisch.petri.forge.ForgeClient;
+import tech.wenisch.petri.forge.ForgeClientRegistry;
 import tech.wenisch.petri.forge.ForgeException;
 import tech.wenisch.petri.forge.PullRequestRef;
 import tech.wenisch.petri.gate.ChangeInspector;
@@ -35,12 +34,12 @@ public class PublishService {
 
     private static final Logger LOG = LoggerFactory.getLogger(PublishService.class);
 
-    private final Map<Forge, ForgeClient> forges;
+    private final ForgeClientRegistry forges;
     private final ChangeInspector inspector;
     private final PolicySettingsService settings;
     private final PetriMetrics metrics;
 
-    public PublishService(Map<Forge, ForgeClient> forges,
+    public PublishService(ForgeClientRegistry forges,
                           ChangeInspector inspector,
                           PolicySettingsService settings,
                           PetriMetrics metrics) {
@@ -78,7 +77,7 @@ public class PublishService {
             return new Published("nothing to publish: the card has no branch", null);
         }
 
-        ForgeClient forge = forges.get(card.getBoard().getForge());
+        ForgeClient forge = forges.get(card.getBoard().getForge()).orElse(null);
         if (forge == null) {
             return new Published("no client configured for " + card.getBoard().getForge(), null);
         }

@@ -25,6 +25,16 @@ say - set:
 petri.gateway.enabled=false
 ```
 
+!!! tip "Also editable at `/settings/connections`, live"
+    Base URL, username and the enabled flag can all be set through the
+    Connections screen instead, database-backed and effective on the very next
+    call - no restart. **The password is the one exception.** There is no field
+    for it anywhere on that page and no column for it anywhere in the database;
+    it is read from `petri.gateway.password` regardless of what else is
+    overridden. The forge's token and the reviewing model's API key work the
+    same way as base URL and username - editable, database-backed, with a
+    stored secret never sent back to the browser to be re-displayed.
+
 ## What Petri asks the gateway for
 
 | Purpose | Call |

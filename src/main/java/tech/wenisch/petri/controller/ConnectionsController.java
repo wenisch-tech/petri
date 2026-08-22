@@ -1,52 +1,120 @@
 package tech.wenisch.petri.controller;
 
+import java.util.List;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import tech.wenisch.petri.entity.Forge;
-import tech.wenisch.petri.forge.ForgeProperties;
-import tech.wenisch.petri.gateway.GatewayProperties;
-import tech.wenisch.petri.review.ReviewProperties;
+import tech.wenisch.petri.entity.ForgeConnectionSettings;
+import tech.wenisch.petri.service.ConnectionSettingsService;
 import tech.wenisch.petri.service.ConnectionTestService;
 
 /**
- * Read-only view of what Petri is configured to talk to, with a live reachability
- * check for each.
+ * Edits what Petri talks to - gateway, forges, reviewing model - with a live
+ * reachability check per target.
  *
- * <p>Read-only on purpose. These fields carry credentials, and editing them
- * through a form would mean deciding where a token lives once it is no longer
- * only in an environment variable or a mounted Secret - a bigger question than
- * this page answers. What it can safely do instead is turn "is the gateway URL
- * wrong" from a fact discovered at 3am in a startup log into a button that
- * answers in five seconds.
+ * <p>Every field here can already be set as an environment variable at deploy
+ * time; this is a second way to set the same thing, one that takes effect on
+ * the next call rather than the next restart. One field is the exception: the
+ * gateway's password has no form field anywhere on this page, and {@link
+ * ConnectionSettingsService#effectiveGateway()} never reads one from the
+ * database - it stays only in whatever already holds it, an environment
+ * variable or a mounted Secret.
  */
 @Controller
 @RequestMapping("/settings/connections")
 public class ConnectionsController {
 
-    private final GatewayProperties gateway;
-    private final ForgeProperties forge;
-    private final ReviewProperties review;
+    private final ConnectionSettingsService settings;
     private final ConnectionTestService tester;
 
-    public ConnectionsController(GatewayProperties gateway, ForgeProperties forge,
-                                 ReviewProperties review, ConnectionTestService tester) {
-        this.gateway = gateway;
-        this.forge = forge;
-        this.review = review;
+    public ConnectionsController(ConnectionSettingsService settings, ConnectionTestService tester) {
+        this.settings = settings;
         this.tester = tester;
+    }
+
+    /** One forge, with its overlay row and the effective value already merged. */
+    public record ForgeRow(Forge forge, ForgeConnectionSettings overlay,
+                           ConnectionSettingsService.EffectiveForge effective) {
     }
 
     @GetMapping
     public String view(Model model) {
-        model.addAttribute("gateway", gateway);
-        model.addAttribute("forges", forge.getForge());
-        model.addAttribute("review", review);
+        model.addAttribute("gatewayOverlay", settings.current());
+        model.addAttribute("gatewayEffective", settings.effectiveGateway());
+
+        model.addAttribute("reviewOverlay", settings.current());
+        model.addAttribute("reviewEffective", settings.effectiveReview());
+
+        java.util.Set<Forge> configured = settings.configuredForges();
+        model.addAttribute("forges", configured.stream()
+                .map(forge -> new ForgeRow(forge, settings.currentForge(forge), settings.effectiveForge(forge)))
+                .toList());
+        model.addAttribute("unconfiguredForgeTypes", List.of(Forge.values()).stream()
+                .filter(forge -> !configured.contains(forge))
+                .toList());
+
         return "connections-settings";
+    }
+
+    @PostMapping("/gateway")
+    public String saveGateway(@RequestParam(required = false) String baseUrl,
+                              @RequestParam(required = false) String username,
+                              @RequestParam(required = false) Boolean enabled,
+                              RedirectAttributes redirect) {
+        settings.updateGateway(baseUrl, username, enabled);
+        redirect.addFlashAttribute("saved", "gateway");
+        return "redirect:/settings/connections";
+    }
+
+    @PostMapping("/review")
+    public String saveReview(@RequestParam(required = false) String baseUrl,
+                             @RequestParam(required = false) String apiKey,
+                             @RequestParam(required = false, defaultValue = "false") boolean clearApiKey,
+                             @RequestParam(required = false) String model,
+                             RedirectAttributes redirect) {
+        settings.updateReview(baseUrl, apiKey, clearApiKey, model);
+        redirect.addFlashAttribute("saved", "review");
+        return "redirect:/settings/connections";
+    }
+
+    /**
+     * Add a forge not yet configured anywhere.
+     *
+     * <p>A separate endpoint from {@link #saveForge}, taking the forge type as a
+     * request parameter rather than a path variable, because it is chosen from a
+     * dropdown at submit time on a page that otherwise has one static form per
+     * already-known forge - there is no forge in the URL to put it in yet.
+     */
+    @PostMapping("/forge")
+    public String addForge(@RequestParam Forge forgeType,
+                           @RequestParam(required = false) String baseUrl,
+                           @RequestParam(required = false) String token,
+                           RedirectAttributes redirect) {
+        settings.updateForge(forgeType, baseUrl, token, false, null, null, false, null);
+        redirect.addFlashAttribute("saved", "forge-" + forgeType);
+        return "redirect:/settings/connections";
+    }
+
+    @PostMapping("/forge/{forge}")
+    public String saveForge(@PathVariable Forge forge,
+                            @RequestParam(required = false) String baseUrl,
+                            @RequestParam(required = false) String token,
+                            @RequestParam(required = false, defaultValue = "false") boolean clearToken,
+                            @RequestParam(required = false) Boolean handTokenToAgent,
+                            @RequestParam(required = false) String agentToken,
+                            @RequestParam(required = false, defaultValue = "false") boolean clearAgentToken,
+                            @RequestParam(required = false) String agentUsername,
+                            RedirectAttributes redirect) {
+        settings.updateForge(forge, baseUrl, token, clearToken,
+                handTokenToAgent, agentToken, clearAgentToken, agentUsername);
+        redirect.addFlashAttribute("saved", "forge-" + forge);
+        return "redirect:/settings/connections";
     }
 
     @PostMapping("/test/gateway")

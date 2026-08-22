@@ -14,12 +14,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tech.wenisch.petri.entity.Forge;
-import tech.wenisch.petri.forge.ForgeProperties;
-import tech.wenisch.petri.gateway.GatewayProperties;
-import tech.wenisch.petri.review.ReviewProperties;
 
 /**
  * Live reachability checks for the Connections screen.
+ *
+ * <p>Tests the <em>effective</em> configuration - database overlay merged with
+ * environment default, exactly what {@code LiveAgentGateway}, {@code
+ * ForgeClientRegistry} and {@code LiveReviewModel} would actually use - so a
+ * green result here means the same thing the runner would see on its next
+ * call, not just that the environment alone looks reachable.
  *
  * <p>Deliberately separate from {@link tech.wenisch.petri.gateway.AgentGateway}
  * and {@link tech.wenisch.petri.forge.ForgeClient} rather than reusing them. The
@@ -40,14 +43,10 @@ public class ConnectionTestService {
     private static final ParameterizedTypeReference<Map<String, Object>> JSON_MAP =
             new ParameterizedTypeReference<>() {};
 
-    private final GatewayProperties gateway;
-    private final ForgeProperties forge;
-    private final ReviewProperties review;
+    private final ConnectionSettingsService settings;
 
-    public ConnectionTestService(GatewayProperties gateway, ForgeProperties forge, ReviewProperties review) {
-        this.gateway = gateway;
-        this.forge = forge;
-        this.review = review;
+    public ConnectionTestService(ConnectionSettingsService settings) {
+        this.settings = settings;
     }
 
     /** Whether the probe reached something, and what it found or what went wrong. */
@@ -55,11 +54,12 @@ public class ConnectionTestService {
     }
 
     public Result testGateway() {
-        if (gateway.baseUrl().isBlank()) {
-            return new Result(false, "no petri.gateway.base-url configured");
+        ConnectionSettingsService.EffectiveGateway effective = settings.effectiveGateway();
+        if (!effective.configured()) {
+            return new Result(false, "no base URL configured");
         }
         try {
-            RestClient client = basicAuthClient(gateway.baseUrl(), gateway.username(), gateway.password());
+            RestClient client = basicAuthClient(effective.baseUrl(), effective.username(), effective.password());
             HttpStatusCode status = client.get().uri("/session/status")
                     .retrieve()
                     .toBodilessEntity()
@@ -71,19 +71,19 @@ public class ConnectionTestService {
     }
 
     public Result testForge(Forge forgeType) {
-        ForgeProperties.Instance instance = forge.getForge().get(forgeType);
-        if (instance == null || !instance.configured()) {
+        ConnectionSettingsService.EffectiveForge effective = settings.effectiveForge(forgeType);
+        if (!effective.configured()) {
             return new Result(false, "not configured");
         }
         if (forgeType != Forge.FORGEJO) {
-            // Only Forgejo's client is implemented at all (see ForgeConfig); a
-            // "test" for a forge Petri cannot otherwise talk to would just be a
+            // Only Forgejo's client is implemented at all (see ForgeClientRegistry);
+            // a "test" for a forge Petri cannot otherwise talk to would just be a
             // second, disconnected claim about reachability.
             return new Result(false, "no client implemented for " + forgeType + " yet");
         }
         try {
             RestClient client = RestClient.builder()
-                    .baseUrl(instance.getBaseUrl() + "/api/v1")
+                    .baseUrl(effective.baseUrl() + "/api/v1")
                     .requestFactory(timeoutFactory())
                     .build();
             Map<String, Object> body = client.get().uri("/version").retrieve().body(JSON_MAP);
@@ -95,15 +95,16 @@ public class ConnectionTestService {
     }
 
     public Result testReview() {
-        if (!review.configured()) {
-            return new Result(false, "no petri.review.base-url configured");
+        ConnectionSettingsService.EffectiveReview effective = settings.effectiveReview();
+        if (!effective.configured()) {
+            return new Result(false, "no base URL configured");
         }
         try {
             RestClient.Builder builder = RestClient.builder()
-                    .baseUrl(review.baseUrl())
+                    .baseUrl(effective.baseUrl())
                     .requestFactory(timeoutFactory());
-            if (!review.apiKey().isBlank()) {
-                builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + review.apiKey());
+            if (!effective.apiKey().isBlank()) {
+                builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + effective.apiKey());
             }
             HttpStatusCode status = builder.build().get().uri("/models")
                     .retrieve()

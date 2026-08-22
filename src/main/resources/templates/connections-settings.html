@@ -12,34 +12,66 @@
     </div>
 
     <p class="text-secondary small">
-        What Petri is configured to talk to. Read-only here - these carry
-        credentials, and editing them through a form would move a secret out of
-        wherever it is deployed today (an environment variable, a mounted
-        Secret). What this page can do is turn "is the URL wrong" from a fact
-        found in a startup log into an answer in five seconds.
+        Every field here can already be set as an environment variable at
+        deploy time; this is a second way to set the same thing, and it takes
+        effect on the very next call - no restart needed. Clearing a field back
+        to blank returns it to whatever the environment specifies.
+        <strong>The gateway's password is the one exception</strong>: there is
+        no field for it anywhere on this page, and it always comes from
+        wherever it is deployed today.
     </p>
 
     <div class="row g-3">
+        <!-- ===================================================== gateway -->
         <div class="col-12 col-lg-4">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body">
                     <h2 class="h6 fw-medium">Agent gateway</h2>
 
-                    <dl class="row small mb-2">
-                        <dt class="col-5">Base URL</dt>
-                        <dd class="col-7 text-truncate" th:text="${gateway.baseUrl() ?: '(not set)'}">-</dd>
-                        <dt class="col-5">Username</dt>
-                        <dd class="col-7" th:text="${gateway.username()}">-</dd>
-                        <dt class="col-5">Password</dt>
-                        <dd class="col-7">
-                            <span th:if="${gateway.password() != null and !gateway.password().isBlank()}"
-                                  class="badge text-bg-light border">set</span>
-                            <span th:unless="${gateway.password() != null and !gateway.password().isBlank()}"
-                                  class="text-secondary">not set</span>
-                        </dd>
-                        <dt class="col-5">Enabled</dt>
-                        <dd class="col-7" th:text="${gateway.enabled()}">-</dd>
-                    </dl>
+                    <div class="alert alert-success py-1 px-2 small"
+                         th:if="${#strings.equals(saved, 'gateway')}">Saved.</div>
+
+                    <form method="post" th:action="@{/settings/connections/gateway}">
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium mb-0">Base URL</label>
+                            <input class="form-control form-control-sm" name="baseUrl"
+                                   th:value="${gatewayOverlay.gatewayBaseUrl}"
+                                   placeholder="e.g. http://gateway.internal:4096">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium mb-0">Username</label>
+                            <input class="form-control form-control-sm" name="username"
+                                   th:value="${gatewayOverlay.gatewayUsername}" placeholder="petri">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium mb-0">Password</label>
+                            <input class="form-control form-control-sm" disabled
+                                   value="set only via petri.gateway.password">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium mb-0">Enabled</label>
+                            <select class="form-select form-select-sm" name="enabled">
+                                <option value="" th:selected="${gatewayOverlay.gatewayEnabled == null}">
+                                    (environment default)
+                                </option>
+                                <option value="true"
+                                        th:selected="${gatewayOverlay.gatewayEnabled != null and gatewayOverlay.gatewayEnabled}">
+                                    Enabled
+                                </option>
+                                <option value="false"
+                                        th:selected="${gatewayOverlay.gatewayEnabled != null and !gatewayOverlay.gatewayEnabled}">
+                                    Disabled
+                                </option>
+                            </select>
+                        </div>
+                        <button class="btn btn-sm btn-primary" type="submit">Save</button>
+                    </form>
+
+                    <p class="text-secondary petri-gate mt-2 mb-2">
+                        In force: <span th:text="${gatewayEffective.baseUrl() ?: '(none)'}">-</span>
+                        as <span th:text="${gatewayEffective.username()}">petri</span>,
+                        <span th:text="${gatewayEffective.enabled()} ? 'enabled' : 'disabled'">enabled</span>.
+                    </p>
 
                     <form method="post" th:action="@{/settings/connections/test/gateway}">
                         <button class="btn btn-sm btn-outline-secondary" type="submit">Test connection</button>
@@ -53,66 +85,171 @@
             </div>
         </div>
 
+        <!-- ======================================================= forges -->
         <div class="col-12 col-lg-4">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body">
                     <h2 class="h6 fw-medium">Forge</h2>
 
                     <p class="text-secondary small fst-italic" th:if="${forges.isEmpty()}">
-                        No forge configured.
+                        No forge configured yet.
                     </p>
 
-                    <div th:each="entry : ${forges}" class="mb-3">
-                        <div class="fw-medium small" th:text="${entry.key}">FORGEJO</div>
-                        <dl class="row small mb-2">
-                            <dt class="col-5">Base URL</dt>
-                            <dd class="col-7 text-truncate" th:text="${entry.value.baseUrl}">-</dd>
-                            <dt class="col-5">Token</dt>
-                            <dd class="col-7">
-                                <span th:if="${entry.value.token != null and !entry.value.token.isBlank()}"
-                                      class="badge text-bg-light border">set</span>
-                                <span th:unless="${entry.value.token != null and !entry.value.token.isBlank()}"
-                                      class="text-secondary">not set</span>
-                            </dd>
-                            <dt class="col-5">Hands agent a token</dt>
-                            <dd class="col-7" th:text="${entry.value.handTokenToAgent}">-</dd>
-                        </dl>
+                    <div th:each="row : ${forges}" class="mb-3 pb-3 border-bottom">
+                        <div class="alert alert-success py-1 px-2 small"
+                             th:if="${#strings.equals(saved, 'forge-' + row.forge)}">Saved.</div>
 
-                        <form method="post" th:action="@{/settings/connections/test/forge/{forge}(forge=${entry.key})}">
+                        <form method="post"
+                              th:action="@{/settings/connections/forge/{forge}(forge=${row.forge})}">
+                            <div class="fw-medium small mb-1" th:text="${row.forge}">FORGEJO</div>
+
+                            <div class="mb-2">
+                                <label class="form-label small fw-medium mb-0">Base URL</label>
+                                <input class="form-control form-control-sm" name="baseUrl"
+                                       th:value="${row.overlay.baseUrl}"
+                                       placeholder="e.g. https://git.example.com">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small fw-medium mb-0">
+                                    Token
+                                    <span class="text-secondary" th:if="${row.effective.token() != null and !row.effective.token().isBlank()}">(set)</span>
+                                </label>
+                                <input class="form-control form-control-sm" type="password" name="token"
+                                       placeholder="leave blank to keep the current value">
+                                <div class="form-check form-check-sm">
+                                    <input class="form-check-input" type="checkbox" value="true"
+                                           th:id="'clearToken-' + ${row.forge}" name="clearToken">
+                                    <label class="form-check-label small" th:for="'clearToken-' + ${row.forge}">
+                                        Clear (revert to environment default)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small fw-medium mb-0">Hand a token to the agent</label>
+                                <select class="form-select form-select-sm" name="handTokenToAgent">
+                                    <option value="" th:selected="${row.overlay.handTokenToAgent == null}">
+                                        (environment default)
+                                    </option>
+                                    <option value="true"
+                                            th:selected="${row.overlay.handTokenToAgent != null and row.overlay.handTokenToAgent}">
+                                        On
+                                    </option>
+                                    <option value="false"
+                                            th:selected="${row.overlay.handTokenToAgent != null and !row.overlay.handTokenToAgent}">
+                                        Off
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small fw-medium mb-0">
+                                    Agent token
+                                    <span class="text-secondary" th:if="${row.overlay.agentToken != null and !row.overlay.agentToken.isBlank()}">(set)</span>
+                                </label>
+                                <input class="form-control form-control-sm" type="password" name="agentToken"
+                                       placeholder="empty falls back to the token above">
+                                <div class="form-check form-check-sm">
+                                    <input class="form-check-input" type="checkbox" value="true"
+                                           th:id="'clearAgentToken-' + ${row.forge}" name="clearAgentToken">
+                                    <label class="form-check-label small" th:for="'clearAgentToken-' + ${row.forge}">
+                                        Clear (revert to environment default)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small fw-medium mb-0">Agent username</label>
+                                <input class="form-control form-control-sm" name="agentUsername"
+                                       th:value="${row.overlay.agentUsername}" placeholder="petri">
+                            </div>
+
+                            <button class="btn btn-sm btn-primary" type="submit">Save</button>
+                        </form>
+
+                        <p class="text-secondary petri-gate mt-2 mb-2">
+                            In force: <span th:text="${row.effective.baseUrl() ?: '(none)'}">-</span>,
+                            agent <span th:text="${row.effective.handTokenToAgent()} ? 'gets' : 'does not get'">-</span>
+                            a token.
+                        </p>
+
+                        <form method="post"
+                              th:action="@{/settings/connections/test/forge/{forge}(forge=${row.forge})}">
                             <button class="btn btn-sm btn-outline-secondary" type="submit">Test connection</button>
                         </form>
 
                         <div class="alert alert-success py-1 px-2 small mt-2 mb-0"
-                             th:if="${testedForge != null and testedForge == entry.key and forgeOk}"
+                             th:if="${testedForge != null and testedForge == row.forge and forgeOk}"
                              th:text="${forgeDetail}">ok</div>
                         <div class="alert alert-danger py-1 px-2 small mt-2 mb-0"
-                             th:if="${testedForge != null and testedForge == entry.key and !forgeOk}"
+                             th:if="${testedForge != null and testedForge == row.forge and !forgeOk}"
                              th:text="${forgeDetail}">error</div>
                     </div>
+
+                    <details th:if="${!unconfiguredForgeTypes.isEmpty()}">
+                        <summary class="small text-secondary">Add a forge</summary>
+                        <form method="post" class="mt-2" th:action="@{/settings/connections/forge}">
+                            <div class="mb-2">
+                                <select class="form-select form-select-sm" name="forgeType">
+                                    <option th:each="f : ${unconfiguredForgeTypes}" th:value="${f}" th:text="${f}">FORGEJO</option>
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <input class="form-control form-control-sm" name="baseUrl"
+                                       placeholder="Base URL, e.g. https://git.example.com" required>
+                            </div>
+                            <div class="mb-2">
+                                <input class="form-control form-control-sm" type="password" name="token"
+                                       placeholder="Token (optional)">
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary" type="submit">Add</button>
+                        </form>
+                    </details>
                 </div>
             </div>
         </div>
 
+        <!-- =============================================== reviewing model -->
         <div class="col-12 col-lg-4">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body">
                     <h2 class="h6 fw-medium">Reviewing model</h2>
 
-                    <dl class="row small mb-2">
-                        <dt class="col-5">Base URL</dt>
-                        <dd class="col-7 text-truncate" th:text="${review.baseUrl() ?: '(not set)'}">-</dd>
-                        <dt class="col-5">Model</dt>
-                        <dd class="col-7" th:text="${review.model()}">-</dd>
-                        <dt class="col-5">API key</dt>
-                        <dd class="col-7">
-                            <span th:if="${review.apiKey() != null and !review.apiKey().isBlank()}"
-                                  class="badge text-bg-light border">set</span>
-                            <span th:unless="${review.apiKey() != null and !review.apiKey().isBlank()}"
-                                  class="text-secondary">not set</span>
-                        </dd>
-                    </dl>
+                    <div class="alert alert-success py-1 px-2 small"
+                         th:if="${#strings.equals(saved, 'review')}">Saved.</div>
 
-                    <p class="text-secondary petri-gate" th:unless="${review.configured()}">
+                    <form method="post" th:action="@{/settings/connections/review}">
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium mb-0">Base URL</label>
+                            <input class="form-control form-control-sm" name="baseUrl"
+                                   th:value="${reviewOverlay.reviewBaseUrl}"
+                                   placeholder="e.g. http://litellm:4000/v1">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium mb-0">Model</label>
+                            <input class="form-control form-control-sm" name="model"
+                                   th:value="${reviewOverlay.reviewModel}" placeholder="chatgpt">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium mb-0">
+                                API key
+                                <span class="text-secondary" th:if="${reviewOverlay.reviewApiKey != null and !reviewOverlay.reviewApiKey.isBlank()}">(set)</span>
+                            </label>
+                            <input class="form-control form-control-sm" type="password" name="apiKey"
+                                   placeholder="leave blank to keep the current value">
+                            <div class="form-check form-check-sm">
+                                <input class="form-check-input" type="checkbox" value="true"
+                                       id="clearApiKey" name="clearApiKey">
+                                <label class="form-check-label small" for="clearApiKey">
+                                    Clear (revert to environment default)
+                                </label>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-primary" type="submit">Save</button>
+                    </form>
+
+                    <p class="text-secondary petri-gate mt-2 mb-2">
+                        In force: <span th:text="${reviewEffective.baseUrl() ?: '(none)'}">-</span>,
+                        model <span th:text="${reviewEffective.model()}">chatgpt</span>.
+                    </p>
+                    <p class="text-secondary petri-gate" th:unless="${reviewEffective.configured()}">
                         Unset. Verdict gates hold rather than pass until this is configured.
                     </p>
 
