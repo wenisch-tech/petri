@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import tech.wenisch.petri.entity.*;
 import tech.wenisch.petri.repository.*;
+import tech.wenisch.petri.service.BoardService;
 import tech.wenisch.petri.service.PipelineService;
 
 /**
@@ -26,15 +27,18 @@ public class BoardApiController {
     private final WorkflowStateRepository states;
     private final CardRepository cards;
     private final PipelineService pipelines;
+    private final BoardService boardService;
 
     public BoardApiController(BoardRepository boards,
                               WorkflowStateRepository states,
                               CardRepository cards,
-                              PipelineService pipelines) {
+                              PipelineService pipelines,
+                              BoardService boardService) {
         this.boards = boards;
         this.states = states;
         this.cards = cards;
         this.pipelines = pipelines;
+        this.boardService = boardService;
     }
 
     public record NewBoard(
@@ -77,23 +81,26 @@ public class BoardApiController {
             Boolean enabled) {
     }
 
+    /**
+     * Create a board.
+     *
+     * <p>The rule that matters - a well-formed, unused slug - lives in {@link
+     * BoardService}, shared with the "new board" page so the two front doors
+     * cannot drift apart.
+     */
     @PostMapping("/boards")
     ResponseEntity<Created> createBoard(@Valid @RequestBody NewBoard request) {
-        boards.findBySlug(request.slug()).ifPresent(existing -> {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "board already exists");
-        });
-
-        Board board = new Board();
-        board.setSlug(request.slug());
-        board.setName(request.name());
-        board.setForge(request.forge());
-        board.setRepository(request.repository());
-        board.setDefaultBranch(request.defaultBranch() == null || request.defaultBranch().isBlank()
-                ? "main" : request.defaultBranch());
-        boards.save(board);
-
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new Created(board.getId(), "/boards/" + board.getSlug()));
+        try {
+            Board board = boardService.create(new BoardService.NewBoard(
+                    request.slug(), request.name(), request.forge(),
+                    request.repository(), request.defaultBranch()));
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(new Created(board.getId(), "/boards/" + board.getSlug()));
+        } catch (BoardService.BoardException ex) {
+            HttpStatus status = ex.kind() == BoardService.BoardException.Kind.SLUG_TAKEN
+                    ? HttpStatus.CONFLICT : HttpStatus.BAD_REQUEST;
+            throw new ResponseStatusException(status, ex.getMessage());
+        }
     }
 
     /**

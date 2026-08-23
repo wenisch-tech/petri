@@ -14,23 +14,26 @@ value for either.
 
 ## What has to be set before you sign in
 
-Two things cannot be configured from the browser, by design, and need to be in
-place before you start:
+One thing cannot be configured from the browser, by design:
 
 ```properties
-petri.security.api-key=...
 petri.security.password=...
 ```
 
-`api-key` guards the write API - the thing that lets a script queue work
-against a real repository - and is unset by default so a fresh install refuses
-requests rather than accepting them from anyone who finds it.  `password` is
-the board login; leave it unset and Petri generates one at startup and logs it,
-which is fine for a first look but worth pinning down for anything that stays
-up. See [Access and the API](configuration-security.md).
+This is the board login. Leave it unset and Petri generates one at startup and
+logs it, which is fine for a first look but worth pinning down for anything
+that stays up. Everything in this guide - creating the board, defining its
+pipeline, adding a card - is done signed in as `admin` with this password, no
+API key required.
+
+If you later want to script against Petri instead - creating boards or cards
+from a pipeline of your own, say - set `petri.security.api-key` too and use
+`PUT /api/boards/{slug}/states` and friends directly; see
+[Access and the API](configuration-security.md). Nothing in this guide needs
+that.
 
 If your gateway sits behind HTTP basic auth, its password is the same kind of
-exception:
+browser-proof exception:
 
 ```properties
 petri.gateway.password=...
@@ -95,30 +98,23 @@ requires it.
 
 ## 5. Create a board
 
-There is no browser form for this one step - a board is the one thing you
-still create through the API, because creating one and pointing it at the
-wrong repository is a bigger mistake than the rest of this guide can undo with
-a form field. Everything about the board is editable in the browser
-immediately afterward.
+**New board**, in the top navigation - reachable from anywhere, not just the
+boards list. Fill in a name, a repository (`owner/name`), the forge you just
+connected, and a default branch. The slug fills itself in from the name as you
+type; edit it directly if you want something different. It becomes the
+board's URL (`/boards/<slug>`) and cannot be changed afterward, which is the
+one field worth pausing on before submitting.
 
-```bash
-curl -X POST https://petri.example/api/boards \
-  -H "Authorization: Bearer $PETRI_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"slug":"my-project","name":"My Project",
-       "forge":"FORGEJO","repository":"owner/repo","defaultBranch":"main"}'
-```
-
-`$PETRI_API_KEY` is whatever you set `petri.security.api-key` to. Open
-`https://petri.example/boards/my-project/settings` afterward if you want to
-change the repository, forge or default branch - no more curl needed for that
-board.
+**Create and define its pipeline** takes you straight to step 6 - there is
+nothing useful to do with a board before it has states. Everything about the
+board itself (repository, forge, default branch, whether the runner may pick
+up work here) stays editable afterward from its own settings page.
 
 ## 6. Define the pipeline
 
-Go to `https://petri.example/boards/my-project/pipeline`. This is the shape
-that keeps a credential off the remote until something has actually checked
-the diff - build it in this order:
+You're already here - creating the board dropped you straight into its
+pipeline editor. This is the shape that keeps a credential off the remote
+until something has actually checked the diff; build it in this order:
 
 | State | Gate | Model alias | On pass | On fail | Notes |
 |---|---|---|---|---|---|

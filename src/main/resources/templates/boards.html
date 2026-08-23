@@ -3,15 +3,21 @@
       th:replace="~{layout :: page('Boards', ~{::content})}">
 <body>
 <th:block th:fragment="content">
-    <h1 class="h4 fw-medium mb-3">Boards</h1>
+    <div class="d-flex align-items-baseline mb-3">
+        <h1 class="h4 fw-medium mb-0">Boards</h1>
+        <a class="btn btn-sm btn-primary ms-auto" th:href="@{/boards/new}">
+            <i class="bi bi-plus-lg me-1"></i>New board
+        </a>
+    </div>
 
     <div th:if="${boards.isEmpty()}" class="card border-0 shadow-sm">
         <div class="card-body">
             <p class="mb-1">No boards yet.</p>
             <p class="text-secondary small mb-0">
                 A board is a repository plus the states its work moves through.
-                Create one through the API, or start the application with
-                <code>petri.seed-demo=true</code> to see an example pipeline.
+                <a th:href="@{/boards/new}">Create one</a>, or start the
+                application with <code>petri.seed-demo=true</code> to see an
+                example pipeline.
             </p>
         </div>
     </div>

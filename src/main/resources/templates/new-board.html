@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('New board', ~{::content})}">
+<body>
+<th:block th:fragment="content">
+    <div class="d-flex align-items-baseline mb-3">
+        <h1 class="h4 fw-medium mb-0">New board</h1>
+        <a class="btn btn-sm btn-outline-secondary ms-auto" th:href="@{/}">
+            <i class="bi bi-arrow-left me-1"></i>Back to boards
+        </a>
+    </div>
+
+    <div class="alert alert-warning py-2 small" th:if="${error != null}" th:text="${error}">error</div>
+
+    <form method="post" th:action="@{/boards/new}" id="new-board-form"
+          class="card border-0 shadow-sm" style="max-width: 32rem;">
+        <div class="card-body">
+            <div class="mb-2">
+                <label class="form-label small fw-medium" for="name">Name</label>
+                <input class="form-control form-control-sm" id="name" name="name"
+                       th:value="${name}" required maxlength="255" placeholder="Control Panel">
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label small fw-medium" for="slug">Slug</label>
+                <input class="form-control form-control-sm font-monospace" id="slug" name="slug"
+                       th:value="${slug}" required pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                       placeholder="control-panel">
+                <div class="form-text">
+                    Lowercase letters, digits and hyphens only. This becomes the
+                    board's URL (<code>/boards/<span id="slug-preview">…</span></code>)
+                    and cannot be changed afterward.
+                </div>
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label small fw-medium" for="forge">Forge</label>
+                <select class="form-select form-select-sm" id="forge" name="forge">
+                    <option th:each="f : ${forges}" th:value="${f}" th:text="${f}"
+                            th:selected="${f == forge}">FORGEJO</option>
+                </select>
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label small fw-medium" for="repository">Repository</label>
+                <input class="form-control form-control-sm" id="repository" name="repository"
+                       th:value="${repository}" required placeholder="owner/name">
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label small fw-medium" for="defaultBranch">Default branch</label>
+                <input class="form-control form-control-sm" id="defaultBranch" name="defaultBranch"
+                       th:value="${defaultBranch}" placeholder="main">
+            </div>
+
+            <button class="btn btn-sm btn-primary" type="submit">
+                Create and define its pipeline
+            </button>
+        </div>
+    </form>
+
+    <!--
+    Vanilla JS, matching the rest of the board UI: no separate frontend build.
+    The slug is still a plain editable input - this only proposes one so a
+    person is not stuck typing hyphens by hand for the common case of a name
+    that already reads like one.
+    -->
+    <script>
+        (function () {
+            const name = document.getElementById('name');
+            const slug = document.getElementById('slug');
+            const preview = document.getElementById('slug-preview');
+            let slugTouchedByHand = slug.value.trim().length > 0;
+
+            function slugify(value) {
+                return value.toLowerCase()
+                        .replace(/[^a-z0-9]+/g, '-')
+                        .replace(/^-+|-+$/g, '');
+            }
+
+            function updatePreview() {
+                preview.textContent = slug.value || '…';
+            }
+
+            name.addEventListener('input', () => {
+                if (!slugTouchedByHand) {
+                    slug.value = slugify(name.value);
+                    updatePreview();
+                }
+            });
+            slug.addEventListener('input', () => {
+                slugTouchedByHand = slug.value.trim().length > 0;
+                updatePreview();
+            });
+
+            updatePreview();
+        })();
+    </script>
+</th:block>
+</body>
+</html>

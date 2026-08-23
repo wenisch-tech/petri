@@ -111,6 +111,7 @@ Petri never merges. Landing a change is a person's decision.
 - **Configurable pipeline** - states, the model bound to each, prompts, gates and transitions are data, not code
 - **Board UI** - server-rendered, states as columns, no separate frontend build
 - **Pipeline editor** - drag-reorder states, edit gates/models/prompts/routing without a curl command
+- **New board form** - name, slug (auto-suggested from the name, editable), forge and repository, straight into its pipeline editor - no curl command to get started at all
 - **Instance settings** - board settings; live-editable policy (concurrency, timeouts, protected paths); and live-editable connections (gateway, forge, reviewing model) with a one-click reachability check, database-backed except the gateway password, which stays only in the environment
 - **Live run visibility** - per-card session status, the agent's own todo list, live diff, and time since last activity
 - **Pluggable gates** - repository gate, independent model verdict, plan-shape validation, human approval
