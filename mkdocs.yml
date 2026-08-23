@@ -23,6 +23,7 @@ nav:
   - Home: index.md
   - Getting Started:
       - Installation and Quickstart: quickstart.md
+      - Your First Pipeline: first-pipeline.md
   - Configuration:
       - Database: configuration-database.md
       - Agent gateway: configuration-gateway.md

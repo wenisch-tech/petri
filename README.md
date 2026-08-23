@@ -175,6 +175,10 @@ docker run -p 8080:8080 \
 
 Flyway migrations run automatically against either database.
 
+Already have Forgejo and an agent gateway running? See
+[Your First Pipeline](docs/first-pipeline.md) to connect them and run
+something end to end.
+
 Full configuration reference: [`docs/`](docs/).
 
 ## Documentation

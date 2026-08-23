@@ -41,6 +41,9 @@ mvn verify
 `mvn verify` runs the tests and the JaCoCo coverage check, which is the same
 gate CI applies.
 
+Once it's up, see [Your First Pipeline](first-pipeline.md) to point it at a
+real forge and agent gateway and run something.
+
 ## Endpoints
 
 | Path | Purpose |
