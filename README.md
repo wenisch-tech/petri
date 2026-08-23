@@ -9,6 +9,10 @@
 
 You describe the pipeline as configuration - *planner → implement → review → human* - and Petri drives it, showing you what each agent is doing while it does it.
 
+![A board with cards in several states, one mid-run with live agent output, one finished with its pull request and full transition history](docs/board-showcase.gif)
+
+*Mocked data - a scripted walkthrough of a seeded board, not a live agent run.*
+
 > **Status: early development.** The design is settled and documented below; the implementation is being built in phases. Nothing here is production-ready yet.
 
 ---
