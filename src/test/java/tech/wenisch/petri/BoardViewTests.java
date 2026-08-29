@@ -13,7 +13,6 @@ import tech.wenisch.petri.entity.*;
 import tech.wenisch.petri.repository.*;
 
 import java.time.Instant;
-import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;

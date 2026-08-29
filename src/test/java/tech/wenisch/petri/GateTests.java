@@ -9,7 +9,6 @@ import tech.wenisch.petri.review.ReviewModel;
 import tech.wenisch.petri.service.PolicySettingsService;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
