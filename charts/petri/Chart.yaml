@@ -2,7 +2,7 @@ apiVersion: v2
 name: petri
 description: A self-hosted orchestrator for AI coding agents
 type: application
-version: 0.0.1
+version: 0.0.2
 appVersion: "0.0.1"
 keywords:
   - orchestration
